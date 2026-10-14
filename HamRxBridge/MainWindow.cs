@@ -25,7 +25,7 @@ public sealed class MainWindow : Window
 
     public MainWindow()
     {
-        Title = "HamRxBridge";
+        Title = "HamRxBridge by AP2FLY";
         Width = 1400; Height = 880; MinWidth = 1050; MinHeight = 650;
         Background = Res("BgBrush");
         Foreground = Res("TextBrush");
@@ -63,6 +63,9 @@ public sealed class MainWindow : Window
         var bar = new DockPanel { Background = Res("PanelBrush"), LastChildFill = false };
         var left = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(10, 8, 10, 8) };
         left.Children.Add(Label("HamRxBridge", 18, "AccentBrush", true));
+        var by = Label("By AP2FLY", 12, "DimBrush");
+        by.Margin = new Thickness(0, 4, 14, 0);
+        left.Children.Add(by);
         left.Children.Add(Btn("Home", (_, _) => ShowStart()));
         left.Children.Add(_back);
         DockPanel.SetDock(left, Dock.Left);

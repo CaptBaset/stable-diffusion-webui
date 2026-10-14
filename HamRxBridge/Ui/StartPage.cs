@@ -23,6 +23,10 @@ public sealed class StartPage : UserControl
         row.Children.Add(Tile("KiwiSDR", "kiwisdr.com/public", "Pro view with spectrum and waterfall, plus the classic web page.", Sdr.SdrKind.Kiwi));
         row.Children.Add(Tile("WebSDR", "websdr.org", "The receiver's own page inside the app. Follows your radio.", Sdr.SdrKind.WebSdr));
         stack.Children.Add(row);
+        var by = Label("By AP2FLY", 14, "DimBrush");
+        by.HorizontalAlignment = HorizontalAlignment.Center;
+        by.Margin = new Thickness(0, 30, 0, 0);
+        stack.Children.Add(by);
         Content = stack;
     }
 
