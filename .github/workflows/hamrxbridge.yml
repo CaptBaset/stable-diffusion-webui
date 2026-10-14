@@ -7,6 +7,9 @@ on:
       - 'HamRxBridge/**'
       - '.github/workflows/hamrxbridge.yml'
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
@@ -29,3 +32,15 @@ jobs:
         with:
           name: HamRxBridge-win-x64
           path: HamRxBridge/publish/
+      - name: Zip
+        run: Compress-Archive -Path publish/* -DestinationPath HamRxBridge-win-x64.zip
+      - name: Publish GitHub release
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "hamrxbridge-build-${{ github.run_number }}"
+          HamRxBridge/HamRxBridge-win-x64.zip
+          --title "HamRxBridge test build ${{ github.run_number }}"
+          --notes "Unzip and run HamRxBridge.exe. Needs OmniRig for radio control."
+          --target ${{ github.sha }}
