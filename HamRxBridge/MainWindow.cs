@@ -24,6 +24,7 @@ public sealed class MainWindow : Window
     readonly Ellipse _led = new() { Width = 10, Height = 10, Margin = new Thickness(10, 0, 6, 0) };
     readonly TextBlock _rigText = Label("", 12, "DimBrush");
     readonly TextBlock _status = Label("Ready", 12, "DimBrush");
+    readonly DockPanel _root = new();
 
     public MainWindow()
     {
@@ -31,13 +32,14 @@ public sealed class MainWindow : Window
         Width = 1480; Height = 920; MinWidth = 1100; MinHeight = 700;
         Background = Res("BgBrush");
         Foreground = Res("TextBrush");
+        FontFamily = TextFont;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         try { Icon = new BitmapImage(new Uri("pack://application:,,,/Assets/app.png")); } catch { }
-        SourceInitialized += (_, _) => DarkTitleBar();
+        SourceInitialized += (_, _) => ApplyWindowsLook();
 
-        _receiversBtn = Btn("Receivers", (_, _) => ShowDirectory(_lastKind));
+        _receiversBtn = IconBtn(Glyph.List, "Receivers", (_, _) => ShowDirectory(_lastKind));
 
-        var root = new DockPanel();
+        var root = _root;
         var top = BuildTopBar();
         DockPanel.SetDock(top, Dock.Top);
         root.Children.Add(top);
@@ -74,9 +76,9 @@ public sealed class MainWindow : Window
         left.Children.Add(Signature(13));
         var gap = new Border { Width = 18 };
         left.Children.Add(gap);
-        left.Children.Add(Btn("Home", (_, _) => ShowStart()));
+        left.Children.Add(IconBtn(Glyph.Home, "Home", (_, _) => ShowStart()));
         left.Children.Add(_receiversBtn);
-        left.Children.Add(Btn("Settings", (_, _) => ShowSettings()));
+        left.Children.Add(IconBtn(Glyph.Settings, "Settings", (_, _) => ShowSettings()));
         DockPanel.SetDock(left, Dock.Left);
         dock.Children.Add(left);
 
@@ -202,20 +204,57 @@ public sealed class MainWindow : Window
         SetStatus("Opening " + e.Name, StatusLevel.Info);
     }
 
-    // ------------------------------------------------------------- dark title bar
+    // ------------------------------------------------------------- Windows 11 look
 
     [DllImport("dwmapi.dll")]
     static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
 
-    void DarkTitleBar()
+    [StructLayout(LayoutKind.Sequential)]
+    struct Margins { public int Left, Right, Top, Bottom; }
+
+    [DllImport("dwmapi.dll")]
+    static extern int DwmExtendFrameIntoClientArea(IntPtr hwnd, ref Margins margins);
+
+    const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20, DWMWA_USE_IMMERSIVE_DARK_MODE_OLD = 19;
+    const int DWMWA_WINDOW_CORNER_PREFERENCE = 33, DWMWCP_ROUND = 2;
+    const int DWMWA_SYSTEMBACKDROP_TYPE = 38, DWMSBT_MAINWINDOW = 2;   // Mica, Windows 11 22H2+
+    const int DWMWA_MICA_EFFECT = 1029;                                // Mica, Windows 11 21H2
+
+    /// <summary>
+    /// Dark title bar everywhere. On Windows 11 also rounded corners and the Mica backdrop,
+    /// shown through a transparent client area. Falls back to the solid theme if Mica is refused.
+    /// </summary>
+    void ApplyWindowsLook()
     {
         try
         {
             var hwnd = new WindowInteropHelper(this).Handle;
             int on = 1;
-            if (DwmSetWindowAttribute(hwnd, 20, ref on, sizeof(int)) != 0)
-                DwmSetWindowAttribute(hwnd, 19, ref on, sizeof(int));
+            if (DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ref on, sizeof(int)) != 0)
+                DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_OLD, ref on, sizeof(int));
+            if (!App.IsWindows11) return;
+
+            int round = DWMWCP_ROUND;
+            DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref round, sizeof(int));
+
+            int backdrop = DWMSBT_MAINWINDOW;
+            int hr = DwmSetWindowAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, ref backdrop, sizeof(int));
+            if (hr != 0)
+            {
+                int mica = 1;
+                hr = DwmSetWindowAttribute(hwnd, DWMWA_MICA_EFFECT, ref mica, sizeof(int));
+            }
+            if (hr != 0) return;
+
+            var src = HwndSource.FromHwnd(hwnd);
+            if (src?.CompositionTarget == null) return;
+            src.CompositionTarget.BackgroundColor = Colors.Transparent;
+            var m = new Margins { Left = -1, Right = -1, Top = -1, Bottom = -1 };
+            DwmExtendFrameIntoClientArea(hwnd, ref m);
+            Background = Brushes.Transparent;
+            _root.Background = new SolidColorBrush(Color.FromArgb(0x9C, 0x07, 0x0B, 0x12));   // keep text contrast
+            Log.Write("Windows 11 Mica backdrop on");
         }
-        catch { }
+        catch (Exception ex) { Log.Write("window look: " + ex.Message); }
     }
 }

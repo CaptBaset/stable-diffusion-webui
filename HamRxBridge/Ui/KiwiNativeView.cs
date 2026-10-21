@@ -51,15 +51,15 @@ public sealed class KiwiNativeView : UserControl, IReceiverView
 
         var bar = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
         var left = new StackPanel { Orientation = Orientation.Horizontal };
-        left.Children.Add(Btn("Zoom out", (_, _) => ChangeZoom(-1)));
-        left.Children.Add(Btn("Zoom in", (_, _) => ChangeZoom(+1)));
-        left.Children.Add(Btn("Centre", (_, _) => _ = _kiwi?.SetView(_zoom, _hz)));
-        left.Children.Add(Btn("Auto contrast", (_, _) => _pan.AutoRange()));
+        left.Children.Add(IconBtn(Glyph.ZoomOut, "Zoom out", (_, _) => ChangeZoom(-1)));
+        left.Children.Add(IconBtn(Glyph.ZoomIn, "Zoom in", (_, _) => ChangeZoom(+1)));
+        left.Children.Add(IconBtn(Glyph.Target, "Centre", (_, _) => _ = _kiwi?.SetView(_zoom, _hz)));
+        left.Children.Add(IconBtn(Glyph.Contrast, "Auto contrast", (_, _) => _pan.AutoRange()));
         left.Children.Add(_viewText);
         var right = new StackPanel { Orientation = Orientation.Horizontal };
         right.Children.Add(_pwBox);
         right.Children.Add(_retry);
-        right.Children.Add(Btn("Open Kiwi web page", (_, _) => OpenWebPageRequested?.Invoke(),
+        right.Children.Add(IconBtn(Glyph.Globe, "Open Kiwi web page", (_, _) => OpenWebPageRequested?.Invoke(),
             "Show this receiver's own KiwiSDR page instead (still controlled by this app)"));
         DockPanel.SetDock(right, Dock.Right);
         bar.Children.Add(right);

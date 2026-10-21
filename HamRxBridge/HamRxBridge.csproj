@@ -14,7 +14,7 @@
     <Authors>AP2FLY</Authors>
     <Copyright>By AP2FLY</Copyright>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
-    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
 

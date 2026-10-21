@@ -25,6 +25,7 @@ public sealed class SettingsPage : UserControl
     readonly CheckBox _muteTx = new() { Content = "Mute the receiver while my radio transmits" };
     readonly TextBlock _rigStatus = Label("", 13);
     readonly TextBlock _detect = Label("", 12, "DimBrush");
+    readonly TextBlock _shortcut = Label("", 12, "DimBrush");
 
     public SettingsPage(RigHub rig)
     {
@@ -94,8 +95,8 @@ public sealed class SettingsPage : UserControl
         _directBox.Margin = new Thickness(0, 8, 0, 0);
         var portHead = new WrapPanel();
         portHead.Children.Add(Label("COM port", 12, "DimBrush"));
-        portHead.Children.Add(Btn("Refresh", (_, _) => FillPorts()));
-        portHead.Children.Add(Btn("Auto-detect my radio", async (_, _) => await AutoDetect()));
+        portHead.Children.Add(IconBtn(Glyph.Refresh, "Refresh", (_, _) => FillPorts()));
+        portHead.Children.Add(IconBtn(Glyph.Search, "Auto-detect my radio", async (_, _) => await AutoDetect()));
         _directBox.Children.Add(portHead);
         _directBox.Children.Add(_ports);
         var baudHead = Label("Baud rate (must match the radio's CI-V or COM menu)", 12, "DimBrush");
@@ -135,6 +136,16 @@ public sealed class SettingsPage : UserControl
         rx.Children.Add(_muteTx);
         stack.Children.Add(Card(rx));
 
+        // ---- Windows integration
+        var win = new StackPanel();
+        win.Children.Add(Section("Windows"));
+        var winRow = new WrapPanel();
+        winRow.Children.Add(IconBtn(Glyph.Pin, "Add to Start menu and desktop", (_, _) => _shortcut.Text = CreateShortcuts()));
+        winRow.Children.Add(_shortcut);
+        win.Children.Add(winRow);
+        win.Children.Add(Label("Keep HamRxBridge.exe in a permanent folder (for example C:\\HamRxBridge) before adding shortcuts. Then pin it to the taskbar from Start.", 11, "DimBrush"));
+        stack.Children.Add(Card(win));
+
         // ---- about
         var about = new StackPanel();
         about.Children.Add(Section("About"));
@@ -144,7 +155,7 @@ public sealed class SettingsPage : UserControl
         ab.Children.Add(Signature(16));
         about.Children.Add(ab);
         var logRow = new WrapPanel();
-        logRow.Children.Add(Btn("Open log and data folder", (_, _) =>
+        logRow.Children.Add(IconBtn(Glyph.Folder, "Open log and data folder", (_, _) =>
         {
             Directory.CreateDirectory(AppSettings.Folder);
             OpenInBrowser(AppSettings.Folder);
@@ -232,6 +243,35 @@ public sealed class SettingsPage : UserControl
         }
         FillPorts(); FillBauds(); SyncUi();
         _rig.Restart();
+    }
+
+    /// <summary>Start menu and desktop shortcuts through the Windows Script Host, no installer needed.</summary>
+    static string CreateShortcuts()
+    {
+        try
+        {
+            string exe = Environment.ProcessPath ?? "";
+            if (exe.Length == 0) return "Could not find the program path.";
+            var shellType = Type.GetTypeFromProgID("WScript.Shell");
+            if (shellType == null) return "Windows Script Host is not available.";
+            dynamic shell = Activator.CreateInstance(shellType)!;
+            foreach (var folder in new[] { Environment.SpecialFolder.Programs, Environment.SpecialFolder.DesktopDirectory })
+            {
+                string path = Path.Combine(Environment.GetFolderPath(folder), "HamRxBridge.lnk");
+                dynamic link = shell.CreateShortcut(path);
+                link.TargetPath = exe;
+                link.WorkingDirectory = Path.GetDirectoryName(exe);
+                link.IconLocation = exe + ",0";
+                link.Description = "HamRxBridge by AP2FLY";
+                link.Save();
+            }
+            return "Done. HamRxBridge is now in Start and on the desktop.";
+        }
+        catch (Exception ex)
+        {
+            Log.Write("shortcut: " + ex);
+            return "Could not create shortcuts: " + ex.Message;
+        }
     }
 
     void UpdateRigStatus()

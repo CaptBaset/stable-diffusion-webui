@@ -64,7 +64,7 @@ public sealed class DirectoryPage : UserControl
             tools.Children.Add(_hideFull);
         }
         tools.Children.Add(_favOnly);
-        tools.Children.Add(Btn("Reload list", async (_, _) => await LoadAsync()));
+        tools.Children.Add(IconBtn(Glyph.Refresh, "Reload list", async (_, _) => await LoadAsync()));
         Grid.SetRow(tools, 2);
         root.Children.Add(tools);
 
@@ -77,7 +77,7 @@ public sealed class DirectoryPage : UserControl
         var actions = new StackPanel { Orientation = Orientation.Horizontal };
         DockPanel.SetDock(actions, Dock.Right);
         if (kind == SdrKind.Kiwi)
-            actions.Children.Add(Btn("Open its Kiwi web page", (_, _) => OpenSelected(false)));
+            actions.Children.Add(IconBtn(Glyph.Globe, "Open its Kiwi web page", (_, _) => OpenSelected(false)));
         actions.Children.Add(AccentBtn(kind == SdrKind.Kiwi ? "Open pro view" : "Open receiver", (_, _) => OpenSelected(true)));
         bottom.Children.Add(actions);
         var left = new StackPanel { Orientation = Orientation.Horizontal };

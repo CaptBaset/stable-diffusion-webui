@@ -33,6 +33,7 @@ public static class UiKit
     public static TextBlock GradientText(string text, double size, bool bold = true) => new()
     {
         Text = text,
+        FontFamily = DisplayFont,
         FontSize = size,
         FontWeight = bold ? FontWeights.Bold : FontWeights.SemiBold,
         Foreground = Res("SignatureBrush"),
@@ -54,6 +55,36 @@ public static class UiKit
     public static Button Btn(string text, RoutedEventHandler onClick, string? tip = null)
     {
         var b = new Button { Content = text };
+        if (tip != null) b.ToolTip = tip;
+        b.Click += onClick;
+        return b;
+    }
+
+    /// <summary>Fluent system icons on Windows 11, MDL2 assets on Windows 10 (same code points).</summary>
+    public static readonly FontFamily IconFont = new("Segoe Fluent Icons, Segoe MDL2 Assets");
+    public static readonly FontFamily TextFont = new("Segoe UI Variable Text, Segoe UI");
+    public static readonly FontFamily DisplayFont = new("Segoe UI Variable Display, Segoe UI");
+
+    public static class Glyph
+    {
+        public const string Home = "\uE80F", Settings = "\uE713", List = "\uE8FD", Refresh = "\uE72C",
+            ZoomIn = "\uE8A3", ZoomOut = "\uE71F", Globe = "\uE774", Target = "\uE7B7",
+            Contrast = "\uE793", Play = "\uE768", Pin = "\uE718", Folder = "\uE838", Search = "\uE721",
+            Radio = "\uE704", Plug = "\uE83E", Star = "\uE734";
+    }
+
+    public static StackPanel IconText(string glyph, string text) 
+    {
+        var sp = new StackPanel { Orientation = Orientation.Horizontal };
+        sp.Children.Add(new TextBlock { Text = glyph, FontFamily = IconFont, FontSize = 14, VerticalAlignment = VerticalAlignment.Center });
+        if (text.Length > 0)
+            sp.Children.Add(new TextBlock { Text = text, Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
+        return sp;
+    }
+
+    public static Button IconBtn(string glyph, string text, RoutedEventHandler onClick, string? tip = null)
+    {
+        var b = new Button { Content = IconText(glyph, text) };
         if (tip != null) b.ToolTip = tip;
         b.Click += onClick;
         return b;
