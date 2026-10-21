@@ -3,84 +3,58 @@ using System.Windows.Threading;
 
 namespace HamRxBridge.Rig;
 
-public enum RigLink { NotInstalled, NotConfigured, Disabled, PortBusy, NotResponding, Online }
-
 /// <summary>
-/// Talks to OmniRig through late bound COM (IDispatch), so it works regardless of
-/// 32 or 64 bit and needs no interop assembly. State is polled, which avoids COM
-/// event sink problems and is plenty fast for a receiver follower.
+/// OmniRig through late bound COM (IDispatch): no interop assembly, works from 64 bit.
+/// State is polled every 200 ms, which avoids COM event sink trouble.
 /// </summary>
-public sealed class OmniRigService : IDisposable
+public sealed class OmniRigService : IRigBackend
 {
     object? _omni;
     readonly DispatcherTimer _timer;
+    readonly int _rigIndex;
 
-    public int RigIndex { get; private set; } = 1;
     public RigLink Link { get; private set; } = RigLink.NotInstalled;
-    public string LinkText { get; private set; } = "OmniRig not started";
-    public string RigName { get; private set; } = "";
+    public string LinkText { get; private set; } = "Starting OmniRig";
     public double FreqHz { get; private set; }
     public RigMode? Mode { get; private set; }
     public bool Transmitting { get; private set; }
 
     public event Action? StateChanged;
-    public event Action<double>? FrequencyChanged;
-    public event Action<RigMode>? ModeChanged;
-    public event Action<bool>? TransmitChanged;
 
-    public OmniRigService()
+    public OmniRigService(int rigIndex)
     {
+        _rigIndex = rigIndex == 2 ? 2 : 1;
         _timer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(200) };
         _timer.Tick += (_, _) => Poll();
-    }
-
-    public void Start(int rigIndex)
-    {
-        RigIndex = rigIndex;
         try
         {
-            if (_omni == null)
-            {
-                var t = Type.GetTypeFromProgID("OmniRig.OmniRigX");
-                if (t == null)
-                {
-                    Set(RigLink.NotInstalled, "OmniRig is not installed (get it from dxatlas.com/omnirig)");
-                    return;
-                }
-                _omni = Activator.CreateInstance(t);
-            }
+            var t = Type.GetTypeFromProgID("OmniRig.OmniRigX");
+            if (t == null) { Set(RigLink.NotInstalled, "OmniRig not installed"); return; }
+            _omni = Activator.CreateInstance(t);
+            _timer.Start();
+            Poll();
         }
         catch (Exception ex)
         {
-            Set(RigLink.NotInstalled, "OmniRig could not be started: " + ex.Message);
-            return;
+            Set(RigLink.NotInstalled, "OmniRig failed: " + ex.Message);
         }
-        _timer.Start();
-        Poll();
     }
 
-    public void SelectRig(int rigIndex)
-    {
-        RigIndex = rigIndex;
-        FreqHz = 0;
-        Mode = null;
-        Poll();
-    }
+    public static bool IsInstalled() => Type.GetTypeFromProgID("OmniRig.OmniRigX") != null;
 
-    dynamic? CurrentRig()
+    dynamic? Rig()
     {
         if (_omni == null) return null;
         dynamic o = _omni;
-        return RigIndex == 2 ? o.Rig2 : o.Rig1;
+        return _rigIndex == 2 ? o.Rig2 : o.Rig1;
     }
 
     void Poll()
     {
         try
         {
-            dynamic? rig = CurrentRig();
+            dynamic? rig = Rig();
             if (rig == null) return;
-
             int status = rig.Status;
             var link = status switch
             {
@@ -93,23 +67,23 @@ public sealed class OmniRigService : IDisposable
             };
             string name = "";
             try { name = (string)rig.RigType; } catch { }
-            string text = link == RigLink.Online ? $"Rig {RigIndex}: {name}" : $"Rig {RigIndex}: {(string)rig.StatusStr}";
+            string text = link == RigLink.Online
+                ? $"OmniRig {_rigIndex}: {name}"
+                : $"OmniRig {_rigIndex}: {(string)rig.StatusStr}";
 
-            bool linkChanged = link != Link || text != LinkText || name != RigName;
-            Link = link; LinkText = text; RigName = name;
+            bool changed = link != Link || text != LinkText;
+            Link = link; LinkText = text;
 
             if (link == RigLink.Online)
             {
                 double f = (int)rig.Freq;
-                int pm = (int)rig.Mode;
+                var mode = RigModeInfo.FromOmniRig((int)rig.Mode);
                 bool tx = ((int)rig.Tx) == RigModeInfo.PM_TX;
-                var mode = RigModeInfo.FromOmniRig(pm);
-
-                if (tx != Transmitting) { Transmitting = tx; TransmitChanged?.Invoke(tx); linkChanged = true; }
-                if (f > 0 && Math.Abs(f - FreqHz) >= 1) { FreqHz = f; FrequencyChanged?.Invoke(f); linkChanged = true; }
-                if (mode.HasValue && mode != Mode) { Mode = mode; ModeChanged?.Invoke(mode.Value); linkChanged = true; }
+                if (f > 0 && Math.Abs(f - FreqHz) >= 1) { FreqHz = f; changed = true; }
+                if (mode.HasValue && mode != Mode) { Mode = mode; changed = true; }
+                if (tx != Transmitting) { Transmitting = tx; changed = true; }
             }
-            if (linkChanged) StateChanged?.Invoke();
+            if (changed) StateChanged?.Invoke();
         }
         catch (Exception ex)
         {
@@ -127,18 +101,25 @@ public sealed class OmniRigService : IDisposable
     public void SetFrequency(double hz)
     {
         if (Link != RigLink.Online) return;
-        try { CurrentRig()!.Freq = (int)Math.Round(hz); FreqHz = Math.Round(hz); } catch { }
+        try { Rig()!.Freq = (int)Math.Round(hz); FreqHz = Math.Round(hz); } catch { }
     }
 
     public void SetMode(RigMode mode)
     {
         if (Link != RigLink.Online) return;
-        try { CurrentRig()!.Mode = RigModeInfo.ToOmniRig(mode); Mode = mode; } catch { }
+        try { Rig()!.Mode = RigModeInfo.ToOmniRig(mode); Mode = mode; } catch { }
     }
 
-    public void ShowOmniRigDialog()
+    public static void ShowDialog()
     {
-        try { ((dynamic)_omni!).DialogVisible = true; } catch { }
+        try
+        {
+            var t = Type.GetTypeFromProgID("OmniRig.OmniRigX");
+            if (t == null) return;
+            dynamic o = Activator.CreateInstance(t)!;
+            o.DialogVisible = true;
+        }
+        catch { }
     }
 
     public void Dispose()

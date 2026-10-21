@@ -1,33 +1,28 @@
-# HamRxBridge
+# HamRxBridge  By AP2FLY
 
-Windows 10/11 app that lets your radio steer a remote receiver, so you can listen on a quiet antenna while your own is buried in local RFI.
+Windows 10/11 app: listen on a quiet antenna anywhere in the world, steered by your own radio. Built for operators whose home receive is buried in local RFI.
 
 ## What it does
 
-- Start screen: pick KiwiSDR or WebSDR.org.
-- Receiver browser: search, sort by distance from your grid square, hide full or offline Kiwis.
-- KiwiSDR pro view: native spectrum, waterfall, S-meter, audio, modes, bandwidth, zoom, band buttons.
-- Web view: any receiver's own page inside the app (needed for WebSDR.org, which has no open protocol).
-- OmniRig CAT: Rig 1 or Rig 2 (for example IC-7300 and TS-480), any rig OmniRig supports.
-- Sync modes: Off, Radio to SDR (receiver follows your dial), Two way (pro view only: click the waterfall and your radio tunes too).
-- Receiver audio mutes while your radio transmits.
+- **KiwiSDR pro view**: our own colourful spectrum, waterfall, S-meter and audio (native connection, compressed audio).
+- **WebSDR live control**: the receiver's own page inside the app, tuned live by this app's panel and by your radio, and read back when you tune on the page.
+- **KiwiSDR web page** option, also under live control.
+- **One control panel for all**: SDRuno style VFO (mouse wheel on any digit), colour coded modes, filter presets, steps, band buttons, S-meter.
+- **Radio control**: OmniRig (Rig 1 or 2), or built in CAT with no extra software: Icom CI-V (IC-7300, IC-705, IC-7610 ...) and Kenwood/Yaesu (TS-480, TS-590, FT-991 ...). Auto-detect included.
+- **Sync**: Off, Radio to SDR, or Two way. Receiver mutes while you transmit.
+- **Receiver browser**: 800+ KiwiSDRs, distance from your grid square, favourites, offline cache.
 
-## Honest limits
+## Safety
 
-- Receive only. This does not transmit through anything.
-- WebSDR.org pages cannot report tuning back, so the web view is one way (radio to receiver) and reloads the page after you stop turning the dial.
-- Remote audio has latency of roughly a second or more. Fine for monitoring and DX hunting, not for contest-speed work.
-- The KiwiSDR protocol code was written from the public client protocol and tested only against a simulated server. If a receiver shows "no waterfall data", use Web view and report it.
+The built in CAT only reads the radio and sets frequency and mode. It never sends a transmit command. RTS and DTR are held low (except Kenwood RTS/CTS flow control when you enable it).
 
 ## Install
 
-1. Install OmniRig (dxatlas.com/omnirig) and configure Rig 1 and Rig 2 for your radios.
-2. Get the Microsoft WebView2 Runtime if Windows does not already have it (needed for web view).
-3. Download the `HamRxBridge-win-x64` artifact from the GitHub Actions run, unzip, run `HamRxBridge.exe`.
+Download the zip from the latest release, unzip, run `HamRxBridge.exe`. No installer.
+Needs the Microsoft WebView2 Runtime for web pages (already on most Windows 10/11 PCs).
 
-## Build yourself
+## Verified so far
 
-```
-cd HamRxBridge
-dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish
-```
+- Kiwi protocol checked against the official kiwiclient and KiwiSDR server source, and tested against a strict simulated server (paths, handshake order, waterfall maths, compressed audio identical to the reference decoder).
+- Direct CAT tested against simulated IC-7300 (CI-V with echo and transceive) and TS-480 (IF/FA/MD) radios.
+- Not yet tested on real hardware or live receivers. Logs are in `%APPDATA%\HamRxBridge\log.txt`.

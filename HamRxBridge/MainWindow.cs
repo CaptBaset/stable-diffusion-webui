@@ -1,6 +1,10 @@
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
+using System.Windows.Interop;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using System.Windows.Shapes;
 using HamRxBridge.Rig;
 using HamRxBridge.Sdr;
 using HamRxBridge.Ui;
@@ -10,171 +14,208 @@ namespace HamRxBridge;
 
 public sealed class MainWindow : Window
 {
-    readonly OmniRigService _rig = new();
-    readonly SyncController _sync;
+    readonly RigHub _rig = new();
     readonly ContentControl _host = new();
     readonly Dictionary<SdrKind, DirectoryPage> _dirs = new();
     UIElement? _current;
     SdrKind _lastKind = SdrKind.Kiwi;
 
-    readonly ToggleButton _rig1, _rig2, _syncOff, _syncOne, _syncTwo;
-    readonly System.Windows.Shapes.Ellipse _led = new() { Width = 12, Height = 12, Margin = new Thickness(8, 0, 4, 0) };
+    readonly Button _receiversBtn;
+    readonly Ellipse _led = new() { Width = 10, Height = 10, Margin = new Thickness(10, 0, 6, 0) };
     readonly TextBlock _rigText = Label("", 12, "DimBrush");
-    readonly TextBlock _rigFreq = Label("", 16, "TextBrush", true);
-    readonly Button _back;
+    readonly TextBlock _status = Label("Ready", 12, "DimBrush");
 
     public MainWindow()
     {
-        Title = "HamRxBridge by AP2FLY";
-        Width = 1400; Height = 880; MinWidth = 1050; MinHeight = 650;
+        Title = "HamRxBridge  By AP2FLY";
+        Width = 1480; Height = 920; MinWidth = 1100; MinHeight = 700;
         Background = Res("BgBrush");
         Foreground = Res("TextBrush");
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        try { Icon = new BitmapImage(new Uri("pack://application:,,,/Assets/app.png")); } catch { }
+        SourceInitialized += (_, _) => DarkTitleBar();
 
-        _sync = new SyncController(_rig);
-        _rig1 = Tog("Rig 1", (_, _) => PickRig(1));
-        _rig2 = Tog("Rig 2", (_, _) => PickRig(2));
-        _syncOff = Tog("Off", (_, _) => PickSync(SyncMode.Off));
-        _syncOne = Tog("Radio to SDR", (_, _) => PickSync(SyncMode.RadioToSdr));
-        _syncTwo = Tog("Two way", (_, _) => PickSync(SyncMode.TwoWay));
-        _back = Btn("< Receivers", (_, _) => ShowDirectory(_lastKind));
-        _back.Visibility = Visibility.Collapsed;
+        _receiversBtn = Btn("Receivers", (_, _) => ShowDirectory(_lastKind));
 
         var root = new DockPanel();
         var top = BuildTopBar();
         DockPanel.SetDock(top, Dock.Top);
         root.Children.Add(top);
+        var bottom = BuildStatusBar();
+        DockPanel.SetDock(bottom, Dock.Bottom);
+        root.Children.Add(bottom);
         root.Children.Add(_host);
         Content = root;
 
-        _rig.StateChanged += UpdateRigBar;
-        Closing += (_, _) => { AppSettings.Current.Save(); DisposeCurrent(); _rig.Dispose(); };
+        _rig.Changed += UpdateRig;
+        Closing += (_, _) => { DisposeCurrent(); _rig.Dispose(); AppSettings.Current.Save(); };
 
-        int idx = AppSettings.Current.RigIndex == 2 ? 2 : 1;
-        PickSyncUi(_sync.Mode);
-        _rig1.IsChecked = idx == 1; _rig2.IsChecked = idx == 2;
-        _rig.Start(idx);
-        UpdateRigBar();
+        _rig.Restart();
         ShowStart();
     }
 
     UIElement BuildTopBar()
     {
-        var bar = new DockPanel { Background = Res("PanelBrush"), LastChildFill = false };
-        var left = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(10, 8, 10, 8) };
-        left.Children.Add(Label("HamRxBridge", 18, "AccentBrush", true));
-        var by = Label("By AP2FLY", 12, "DimBrush");
-        by.Margin = new Thickness(0, 4, 14, 0);
-        left.Children.Add(by);
+        var bar = new Border
+        {
+            Background = Res("PanelBrush"),
+            BorderBrush = Res("LineBrush"),
+            BorderThickness = new Thickness(0, 0, 0, 1),
+            Padding = new Thickness(12, 8, 12, 8)
+        };
+        var dock = new DockPanel { LastChildFill = false };
+        var left = new StackPanel { Orientation = Orientation.Horizontal };
+        try
+        {
+            left.Children.Add(new Image { Source = new BitmapImage(new Uri("pack://application:,,,/Assets/app.png")), Width = 30, Height = 30, Margin = new Thickness(0, 0, 8, 0) });
+        }
+        catch { }
+        left.Children.Add(GradientText("HamRxBridge", 20));
+        left.Children.Add(Signature(13));
+        var gap = new Border { Width = 18 };
+        left.Children.Add(gap);
         left.Children.Add(Btn("Home", (_, _) => ShowStart()));
-        left.Children.Add(_back);
+        left.Children.Add(_receiversBtn);
+        left.Children.Add(Btn("Settings", (_, _) => ShowSettings()));
         DockPanel.SetDock(left, Dock.Left);
-        bar.Children.Add(left);
+        dock.Children.Add(left);
 
-        var right = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(10, 8, 10, 8) };
-        DockPanel.SetDock(right, Dock.Right);
-        right.Children.Add(_rigFreq);
-        right.Children.Add(_led);
-        right.Children.Add(_rigText);
-        right.Children.Add(_rig1);
-        right.Children.Add(_rig2);
-        right.Children.Add(Btn("OmniRig setup", (_, _) => _rig.ShowOmniRigDialog()));
-        right.Children.Add(Label("Sync", 12, "DimBrush"));
-        right.Children.Add(_syncOff);
-        right.Children.Add(_syncOne);
-        right.Children.Add(_syncTwo);
-        bar.Children.Add(right);
+        var pill = new Border
+        {
+            Background = Res("Panel2Brush"), BorderBrush = Res("LineBrush"), BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(14), Padding = new Thickness(4, 4, 12, 4), Cursor = System.Windows.Input.Cursors.Hand,
+            ToolTip = "Radio control. Click for settings."
+        };
+        var pillRow = new StackPanel { Orientation = Orientation.Horizontal };
+        pillRow.Children.Add(_led);
+        pillRow.Children.Add(_rigText);
+        pill.Child = pillRow;
+        pill.MouseLeftButtonUp += (_, _) => ShowSettings();
+        DockPanel.SetDock(pill, Dock.Right);
+        dock.Children.Add(pill);
+
+        bar.Child = dock;
         return bar;
     }
 
-    // ---------------------------------------------------------- rig bar
-
-    void PickRig(int i)
+    UIElement BuildStatusBar()
     {
-        _rig1.IsChecked = i == 1; _rig2.IsChecked = i == 2;
-        AppSettings.Current.RigIndex = i;
-        _rig.SelectRig(i);
-        UpdateRigBar();
-        _sync.PushRigToSdr();
+        var bar = new Border
+        {
+            Background = Res("PanelBrush"), BorderBrush = Res("LineBrush"), BorderThickness = new Thickness(0, 1, 0, 0),
+            Padding = new Thickness(12, 4, 12, 4)
+        };
+        var dock = new DockPanel();
+        var right = new StackPanel { Orientation = Orientation.Horizontal };
+        right.Children.Add(Label("HamRxBridge 1.0", 11, "DimBrush"));
+        right.Children.Add(Signature(12));
+        DockPanel.SetDock(right, Dock.Right);
+        dock.Children.Add(right);
+        dock.Children.Add(_status);
+        bar.Child = dock;
+        return bar;
     }
 
-    void PickSync(SyncMode m)
+    void SetStatus(string text, StatusLevel level)
     {
-        _sync.Mode = m;
-        AppSettings.Current.Sync = m;
-        PickSyncUi(m);
-        _sync.PushRigToSdr();
+        _status.Text = text;
+        _status.Foreground = Res(level switch
+        {
+            StatusLevel.Good => "GoodBrush",
+            StatusLevel.Warn => "WarnBrush",
+            StatusLevel.Bad => "BadBrush",
+            _ => "DimBrush"
+        });
     }
 
-    void PickSyncUi(SyncMode m)
+    void UpdateRig()
     {
-        _syncOff.IsChecked = m == SyncMode.Off;
-        _syncOne.IsChecked = m == SyncMode.RadioToSdr;
-        _syncTwo.IsChecked = m == SyncMode.TwoWay;
+        var b = _rig.Backend;
+        _led.Fill = b.Link switch
+        {
+            RigLink.Online => b.Transmitting ? Res("BadBrush") : Res("GoodBrush"),
+            RigLink.Off => Res("DimBrush"),
+            RigLink.NotInstalled => Res("BadBrush"),
+            _ => Res("WarnBrush")
+        };
+        _rigText.Text = b.Link == RigLink.Online && b.FreqHz > 0
+            ? $"{b.LinkText}    {FormatHz(b.FreqHz)} {(b.Mode.HasValue ? ModeName(b.Mode.Value) : "")}{(b.Transmitting ? "   TX" : "")}"
+            : b.LinkText;
     }
 
-    void UpdateRigBar()
-    {
-        _rigText.Text = _rig.LinkText;
-        _led.Fill = Res(_rig.Link == RigLink.Online ? (_rig.Transmitting ? "BadBrush" : "GoodBrush")
-            : _rig.Link == RigLink.NotInstalled ? "BadBrush" : "WarnBrush");
-        _rigFreq.Text = _rig.Link == RigLink.Online && _rig.FreqHz > 0
-            ? $"{FormatHz(_rig.FreqHz)}  {_rig.Mode}" : "";
-    }
+    // ------------------------------------------------------------- navigation
 
-    // ------------------------------------------------------- navigation
-
-    void Show(UIElement page, bool keepAlive = false)
+    void Show(UIElement page)
     {
-        if (!keepAlive || _current != page) DisposeCurrentIfNotCached();
+        if (!ReferenceEquals(_current, page)) DisposeCurrent();
         _current = page;
         _host.Content = page;
     }
 
-    void DisposeCurrentIfNotCached()
+    void DisposeCurrent()
     {
-        _sync.Detach();
-        if (_current is IDisposable d) d.Dispose();
+        if (_current is ReceiverPage rp) rp.Dispose();
         _current = null;
     }
 
-    void DisposeCurrent() => DisposeCurrentIfNotCached();
-
     void ShowStart()
     {
-        _back.Visibility = Visibility.Collapsed;
         var p = new StartPage();
-        p.Chosen += kind => ShowDirectory(kind);
+        p.Chosen += ShowDirectory;
+        p.ResumeRequested += OpenReceiver;
+        p.SettingsRequested += ShowSettings;
         Show(p);
+        SetStatus("Pick a receiver network", StatusLevel.Info);
+    }
+
+    void ShowSettings()
+    {
+        Show(new SettingsPage(_rig));
+        SetStatus("Settings", StatusLevel.Info);
     }
 
     void ShowDirectory(SdrKind kind)
     {
         _lastKind = kind;
-        _back.Visibility = Visibility.Collapsed;
         if (!_dirs.TryGetValue(kind, out var page))
         {
             page = _dirs[kind] = new DirectoryPage(kind);
-            page.OpenRequested += (e, native) => OpenReceiver(e, native);
+            page.OpenRequested += OpenReceiver;
         }
-        Show(page, true);
+        Show(page);
+        SetStatus(kind == SdrKind.Kiwi ? "KiwiSDR receivers" : "WebSDR receivers", StatusLevel.Info);
     }
 
     void OpenReceiver(ReceiverEntry e, bool native)
     {
-        _back.Visibility = Visibility.Visible;
-        if (native && e.Kind == SdrKind.Kiwi)
+        _lastKind = e.Kind;
+        var s = AppSettings.Current;
+        s.LastReceiver = e;
+        s.LastWasNative = native;
+        s.Save();
+        Log.Write($"Open receiver {e.Name} ({e.BaseUrl}) native={native}");
+
+        var page = new ReceiverPage(e, native, _rig);
+        page.StatusChanged += SetStatus;
+        page.SwitchToWebPage += r => OpenReceiver(r, false);
+        Show(page);
+        SetStatus("Opening " + e.Name, StatusLevel.Info);
+    }
+
+    // ------------------------------------------------------------- dark title bar
+
+    [DllImport("dwmapi.dll")]
+    static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+
+    void DarkTitleBar()
+    {
+        try
         {
-            var k = new KiwiPage(e);
-            k.OpenWebViewRequested += () => OpenReceiver(e, false);
-            Show(k);
-            _sync.Attach(k);
+            var hwnd = new WindowInteropHelper(this).Handle;
+            int on = 1;
+            if (DwmSetWindowAttribute(hwnd, 20, ref on, sizeof(int)) != 0)
+                DwmSetWindowAttribute(hwnd, 19, ref on, sizeof(int));
         }
-        else
-        {
-            var w = new WebReceiverPage(e);
-            Show(w);
-            _sync.Attach(w);
-        }
+        catch { }
     }
 }

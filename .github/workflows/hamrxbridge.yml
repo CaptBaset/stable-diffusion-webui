@@ -41,6 +41,6 @@ jobs:
         run: >
           gh release create "hamrxbridge-build-${{ github.run_number }}"
           HamRxBridge/HamRxBridge-win-x64.zip
-          --title "HamRxBridge test build ${{ github.run_number }}"
-          --notes "Unzip and run HamRxBridge.exe. Needs OmniRig for radio control."
+          --title "HamRxBridge 1.0 by AP2FLY (build ${{ github.run_number }})"
+          --notes "Unzip and run HamRxBridge.exe. No installer needed. Radio control via OmniRig or the built in Icom and Kenwood CAT."
           --target ${{ github.sha }}

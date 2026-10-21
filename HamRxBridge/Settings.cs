@@ -1,31 +1,51 @@
 using System.IO;
 using System.Text.Json;
+using HamRxBridge.Sdr;
 
 namespace HamRxBridge;
 
 public enum SyncMode { Off, RadioToSdr, TwoWay }
+public enum CatSource { OmniRig, IcomCiv, KenwoodYaesu, None }
 
 public sealed class AppSettings
 {
-    public int RigIndex { get; set; } = 1;
-    public SyncMode Sync { get; set; } = SyncMode.RadioToSdr;
+    // operator
+    public string Callsign { get; set; } = "";
     public double? Lat { get; set; }
     public double? Lon { get; set; }
-    public double Volume { get; set; } = 0.7;
-    public string KiwiPassword { get; set; } = "";
+
+    // radio control
+    public CatSource Cat { get; set; } = CatSource.OmniRig;
+    public int RigIndex { get; set; } = 1;
+    public string CatPort { get; set; } = "";
+    public int CatBaud { get; set; } = 19200;
+    public string CivAddress { get; set; } = "94";
+    public bool KenwoodRtsCts { get; set; } = true;
+    public SyncMode Sync { get; set; } = SyncMode.RadioToSdr;
     public bool MuteOnTx { get; set; } = true;
 
-    static string PathFile => System.IO.Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "HamRxBridge", "settings.json");
+    // receiver
+    public double Volume { get; set; } = 0.7;
+    public bool KiwiCompression { get; set; } = true;
+    public string KiwiPassword { get; set; } = "";
+    public int KiwiZoom { get; set; } = 7;
+    public double LastHz { get; set; } = 7_100_000;
+    public ReceiverEntry? LastReceiver { get; set; }
+    public bool LastWasNative { get; set; } = true;
+    public List<string> Favorites { get; set; } = new();
 
-    public static AppSettings Current { get; private set; } = Load();
+    public static string Folder => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "HamRxBridge");
+    static string FilePath => Path.Combine(Folder, "settings.json");
+
+    public static AppSettings Current { get; } = Load();
 
     static AppSettings Load()
     {
         try
         {
-            if (File.Exists(PathFile))
-                return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(PathFile)) ?? new AppSettings();
+            if (File.Exists(FilePath))
+                return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath)) ?? new AppSettings();
         }
         catch { }
         return new AppSettings();
@@ -35,8 +55,36 @@ public sealed class AppSettings
     {
         try
         {
-            Directory.CreateDirectory(System.IO.Path.GetDirectoryName(PathFile)!);
-            File.WriteAllText(PathFile, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
+            Directory.CreateDirectory(Folder);
+            File.WriteAllText(FilePath, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch { }
+    }
+
+    public bool IsFavorite(ReceiverEntry e) => Favorites.Contains(e.Key);
+
+    public void ToggleFavorite(ReceiverEntry e)
+    {
+        if (!Favorites.Remove(e.Key)) Favorites.Add(e.Key);
+        Save();
+    }
+}
+
+public static class Log
+{
+    static readonly object Gate = new();
+
+    public static void Write(string text)
+    {
+        try
+        {
+            lock (Gate)
+            {
+                Directory.CreateDirectory(AppSettings.Folder);
+                string path = Path.Combine(AppSettings.Folder, "log.txt");
+                if (File.Exists(path) && new FileInfo(path).Length > 2_000_000) File.Delete(path);
+                File.AppendAllText(path, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  {text}{Environment.NewLine}");
+            }
         }
         catch { }
     }
