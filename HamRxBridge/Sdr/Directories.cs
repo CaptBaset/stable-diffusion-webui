@@ -29,6 +29,7 @@ public sealed class ReceiverEntry
 
     [JsonIgnore] public double DistanceKm { get; set; } = double.NaN;
     [JsonIgnore] public bool Favorite { get; set; }
+    [JsonIgnore] public string KindText => Kind == SdrKind.Kiwi ? "KiwiSDR" : "WebSDR";
     [JsonIgnore] public string Star => Favorite ? "\u2605" : "\u2606";
     [JsonIgnore] public string UsersText => Users < 0 ? "" : MaxUsers > 0 ? $"{Users}/{MaxUsers}" : Users.ToString();
     [JsonIgnore] public string DistanceText => double.IsNaN(DistanceKm) ? "" : $"{DistanceKm:N0}";
@@ -193,6 +194,82 @@ public static class Directories
     }
 
     static readonly JsonSerializerOptions JsonOpts = new() { NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals };
+
+    // ---------------------------------------------------------------- single addresses
+
+    /// <summary>
+    /// Turn whatever the operator pasted (host, host:port, or a full URL) into a receiver.
+    /// A KiwiSDR answers /status with key=value lines; anything else is treated as a WebSDR.
+    /// Name and location are filled in from the receiver itself when it answers.
+    /// </summary>
+    public static async Task<ReceiverEntry?> ResolveAddressAsync(string text, SdrKind? forced, CancellationToken ct)
+    {
+        text = text.Trim().Trim('"', '\'', ',', ';');
+        if (text.Length < 4 || text.StartsWith("#")) return null;
+        if (!text.Contains("://")) text = "http://" + text;
+        if (!Uri.TryCreate(text, UriKind.Absolute, out var u) || u.Host.Length == 0) return null;
+        if (!u.Host.Contains('.') && u.Host != "localhost") return null;     // a stray word, not an address
+
+        if (forced == SdrKind.WebSdr) return await WebSdrWithTitle(ReceiverEntry.FromWebSdrAddress(text), ct);
+
+        var kiwi = ReceiverEntry.FromKiwiAddress(text);
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(7));
+            string status = await Http.GetStringAsync(kiwi.BaseUrl + "status", cts.Token);
+            if (status.Contains("users_max=") || status.Contains("sdr_hw="))
+            {
+                // /status has no url line, so the address we used is passed in as the link
+                var e = FromKiwiRecord(LinesToDict(status), kiwi.BaseUrl) ?? kiwi;
+                e.Host = kiwi.Host; e.Port = kiwi.Port; e.UseTls = kiwi.UseTls; e.Url = kiwi.BaseUrl;
+                return e;
+            }
+        }
+        catch (Exception ex) { Log.Write($"resolve {text}: {ex.Message}"); }
+
+        if (forced == SdrKind.Kiwi) return kiwi;
+        int port = u.IsDefaultPort ? 0 : u.Port;
+        if (port is >= 8073 and <= 8079) return kiwi;          // KiwiSDR default ports
+        return await WebSdrWithTitle(ReceiverEntry.FromWebSdrAddress(text), ct);
+    }
+
+    static readonly Regex AddressRx = new(
+        @"(?:https?://[^\s""'<>,;]+)|(?:\b(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,}(?::\d{2,5})?(?:/[^\s""'<>,;]*)?)|(?:\b\d{1,3}(?:\.\d{1,3}){3}(?::\d{2,5})?\b)",
+        RegexOptions.Compiled);
+
+    /// <summary>Pull every address out of pasted text: URLs, host:port, or bare host names. Ignores other words.</summary>
+    public static List<string> ExtractAddresses(string text) =>
+        AddressRx.Matches(text).Select(m => m.Value.TrimEnd('.', ')', ']')).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+    static Dictionary<string, string> LinesToDict(string text)
+    {
+        var d = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var raw in text.Split('\n'))
+        {
+            int eq = raw.IndexOf('=');
+            if (eq > 0) d.TryAdd(raw[..eq].Trim(), raw[(eq + 1)..].Trim());
+        }
+        return d;
+    }
+
+    static async Task<ReceiverEntry> WebSdrWithTitle(ReceiverEntry e, CancellationToken ct)
+    {
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(7));
+            string html = await Http.GetStringAsync(e.BaseUrl, cts.Token);
+            var m = Regex.Match(html, @"<title[^>]*>(.*?)</title>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+            if (m.Success)
+            {
+                string t = Clean(m.Groups[1].Value);
+                if (t.Length > 1) e.Name = t;
+            }
+        }
+        catch (Exception ex) { Log.Write($"websdr title {e.BaseUrl}: {ex.Message}"); }
+        return e;
+    }
 
     // ---------------------------------------------------------------- Kiwi parsing
 

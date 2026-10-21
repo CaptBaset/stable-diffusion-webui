@@ -12,6 +12,7 @@ public sealed class StartPage : UserControl
     public event Action<SdrKind>? Chosen;
     public event Action<ReceiverEntry, bool>? ResumeRequested;
     public event Action? SettingsRequested;
+    public event Action? MineRequested;
 
     public StartPage()
     {
@@ -57,6 +58,39 @@ public sealed class StartPage : UserControl
             resume.FontSize = 15;
             resume.HorizontalAlignment = HorizontalAlignment.Center;
             stack.Children.Add(resume);
+        }
+
+        // ---- My receivers: one click each
+        var mine = AppSettings.Current.MyReceivers;
+        var mineHead = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 28, 0, 6) };
+        mineHead.Children.Add(Label("MY RECEIVERS", 12, "DimBrush", true));
+        mineHead.Children.Add(Btn(mine.Count == 0 ? "Add some" : "Manage", (_, _) => MineRequested?.Invoke()));
+        stack.Children.Add(mineHead);
+        if (mine.Count == 0)
+        {
+            var none = Label("Save receivers once, then open them here with one click.", 13, "DimBrush");
+            none.HorizontalAlignment = HorizontalAlignment.Center;
+            stack.Children.Add(none);
+        }
+        else
+        {
+            var wrap = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Center, MaxWidth = 900 };
+            foreach (var r in mine.Take(12))
+            {
+                var rr = r;
+                var b = Btn("", (_, _) => ResumeRequested?.Invoke(rr, rr.Kind == SdrKind.Kiwi), rr.BaseUrl);
+                var content = new StackPanel { Orientation = Orientation.Horizontal };
+                content.Children.Add(new Border
+                {
+                    Width = 8, Height = 8, CornerRadius = new CornerRadius(4), Margin = new Thickness(0, 0, 8, 0),
+                    Background = Res(rr.Kind == SdrKind.Kiwi ? "AccentBrush" : "VioletBrush")
+                });
+                content.Children.Add(new TextBlock { Text = rr.Name.Length > 34 ? rr.Name[..34] + "..." : rr.Name, VerticalAlignment = VerticalAlignment.Center });
+                b.Content = content;
+                b.Padding = new Thickness(12, 7, 12, 7);
+                wrap.Children.Add(b);
+            }
+            stack.Children.Add(wrap);
         }
 
         var settings = Btn("Settings: radio, callsign, location", (_, _) => SettingsRequested?.Invoke());

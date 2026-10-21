@@ -30,7 +30,7 @@ public sealed class DirectoryPage : UserControl
         _kind = kind;
         _hideFull = Tog("Hide full and offline", (_, _) => Refilter(), Res("GoodBrush"));
         _hideFull.IsChecked = true;
-        _favOnly = Tog("★ Favourites", (_, _) => Refilter(), Res("WarnBrush"));
+        _favOnly = Tog("★ Saved only", (_, _) => Refilter(), Res("WarnBrush"));
 
         var root = new Grid { Margin = new Thickness(18, 14, 18, 12) };
         for (int i = 0; i < 3; i++) root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -91,7 +91,12 @@ public sealed class DirectoryPage : UserControl
         root.Children.Add(bottom);
 
         Content = root;
-        Loaded += async (_, _) => { if (_all.Count == 0 && !_loading) await LoadAsync(); };
+        Loaded += async (_, _) =>
+        {
+            if (_all.Count == 0 && !_loading) { await LoadAsync(); return; }
+            foreach (var e in _all) e.Favorite = AppSettings.Current.IsFavorite(e);   // saved elsewhere meanwhile
+            Refilter();
+        };
     }
 
     void BuildGrid()
@@ -197,6 +202,7 @@ public sealed class DirectoryPage : UserControl
         {
             var res = await Directories.LoadAsync(_kind, msg => Dispatcher.BeginInvoke(() => Status(msg, StatusLevel.Info)), CancellationToken.None);
             _all = res.Items;
+            AppSettings.Current.MigrateFavorites(_all);
             foreach (var e in _all) e.Favorite = AppSettings.Current.IsFavorite(e);
             Status(res.FromCache ? $"Showing a saved list ({res.Source}). Reload when online." : $"Live list from {res.Source}",
                 res.FromCache ? StatusLevel.Warn : StatusLevel.Good);

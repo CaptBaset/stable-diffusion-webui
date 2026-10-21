@@ -23,6 +23,7 @@ public sealed class ReceiverPage : UserControl, IDisposable
     readonly TextBlock _title = Label("", 16, "TextBrush", true);
     readonly TextBlock _sub = Label("", 12, "DimBrush");
     readonly TextBlock _method = Label("", 11, "AccentBrush", true);
+    readonly System.Windows.Controls.Primitives.ToggleButton _saveBtn;
 
     double _hz;
     RigMode _mode;
@@ -74,7 +75,11 @@ public sealed class ReceiverPage : UserControl, IDisposable
         right.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         right.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         var head = new StackPanel { Margin = new Thickness(2, 0, 0, 8) };
+        _saveBtn = Tog("", (_, _) => ToggleSaved(), Res("WarnBrush"));
+        _saveBtn.ToolTip = "Save this receiver to My receivers";
+        UpdateSaveBtn();
         var titleRow = new StackPanel { Orientation = Orientation.Horizontal };
+        titleRow.Children.Add(_saveBtn);
         titleRow.Children.Add(_title);
         titleRow.Children.Add(_method);
         head.Children.Add(titleRow);
@@ -121,6 +126,20 @@ public sealed class ReceiverPage : UserControl, IDisposable
         _lastRigHz = _rig.Backend.FreqHz;
         _lastRigMode = _rig.Backend.Mode;
         PushToView();
+    }
+
+    void ToggleSaved()
+    {
+        AppSettings.Current.ToggleFavorite(_rx);
+        UpdateSaveBtn();
+        StatusChanged?.Invoke(AppSettings.Current.IsFavorite(_rx) ? "Saved to My receivers" : "Removed from My receivers", StatusLevel.Good);
+    }
+
+    void UpdateSaveBtn()
+    {
+        bool saved = AppSettings.Current.IsFavorite(_rx);
+        _saveBtn.IsChecked = saved;
+        _saveBtn.Content = IconText(saved ? "\uE735" : "\uE734", saved ? "Saved" : "Save");
     }
 
     // ------------------------------------------------------------- the three sources

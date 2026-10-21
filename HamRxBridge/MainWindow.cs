@@ -37,7 +37,7 @@ public sealed class MainWindow : Window
         try { Icon = new BitmapImage(new Uri("pack://application:,,,/Assets/app.png")); } catch { }
         SourceInitialized += (_, _) => ApplyWindowsLook();
 
-        _receiversBtn = IconBtn(Glyph.List, "Receivers", (_, _) => ShowDirectory(_lastKind));
+        _receiversBtn = IconBtn(Glyph.List, "Browse", (_, _) => ShowDirectory(_lastKind));
 
         var root = _root;
         var top = BuildTopBar();
@@ -77,6 +77,7 @@ public sealed class MainWindow : Window
         var gap = new Border { Width = 18 };
         left.Children.Add(gap);
         left.Children.Add(IconBtn(Glyph.Home, "Home", (_, _) => ShowStart()));
+        left.Children.Add(IconBtn(Glyph.Star, "My receivers", (_, _) => ShowMine()));
         left.Children.Add(_receiversBtn);
         left.Children.Add(IconBtn(Glyph.Settings, "Settings", (_, _) => ShowSettings()));
         DockPanel.SetDock(left, Dock.Left);
@@ -166,8 +167,17 @@ public sealed class MainWindow : Window
         p.Chosen += ShowDirectory;
         p.ResumeRequested += OpenReceiver;
         p.SettingsRequested += ShowSettings;
+        p.MineRequested += ShowMine;
         Show(p);
         SetStatus("Pick a receiver network", StatusLevel.Info);
+    }
+
+    void ShowMine()
+    {
+        var p = new MyReceiversPage();
+        p.OpenRequested += OpenReceiver;
+        Show(p);
+        SetStatus("My receivers", StatusLevel.Info);
     }
 
     void ShowSettings()

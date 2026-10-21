@@ -33,7 +33,11 @@ public sealed class AppSettings
     public double LastHz { get; set; } = 7_100_000;
     public ReceiverEntry? LastReceiver { get; set; }
     public bool LastWasNative { get; set; } = true;
+    /// <summary>Old favourite keys (before My receivers existed); migrated when seen in a list.</summary>
     public List<string> Favorites { get; set; } = new();
+
+    /// <summary>The operator's saved receivers, kept in full so they open without going online.</summary>
+    public List<ReceiverEntry> MyReceivers { get; set; } = new();
 
     public static string Folder => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "HamRxBridge");
@@ -69,12 +73,42 @@ public sealed class AppSettings
         catch (Exception ex) { Log.Write("settings save failed: " + ex.Message); }
     }
 
-    public bool IsFavorite(ReceiverEntry e) => Favorites.Contains(e.Key);
+    public bool IsFavorite(ReceiverEntry e) => MyReceivers.Any(r => r.Key == e.Key);
 
     public void ToggleFavorite(ReceiverEntry e)
     {
-        if (!Favorites.Remove(e.Key)) Favorites.Add(e.Key);
+        if (IsFavorite(e)) RemoveReceiver(e);
+        else SaveReceiver(e);
+    }
+
+    /// <summary>Add or update a saved receiver. Keeps a name the operator gave it.</summary>
+    public void SaveReceiver(ReceiverEntry e)
+    {
+        var copy = JsonSerializer.Deserialize<ReceiverEntry>(JsonSerializer.Serialize(e, Json), Json)!;
+        int i = MyReceivers.FindIndex(r => r.Key == e.Key);
+        if (i >= 0)
+        {
+            if (!string.IsNullOrWhiteSpace(MyReceivers[i].Name)) copy.Name = MyReceivers[i].Name;
+            MyReceivers[i] = copy;
+        }
+        else MyReceivers.Add(copy);
+        Favorites.Remove(e.Key);
         Save();
+    }
+
+    public void RemoveReceiver(ReceiverEntry e)
+    {
+        MyReceivers.RemoveAll(r => r.Key == e.Key);
+        Favorites.Remove(e.Key);
+        Save();
+    }
+
+    /// <summary>Move favourites from the old key-only list into My receivers when their details are known.</summary>
+    public void MigrateFavorites(IEnumerable<ReceiverEntry> seen)
+    {
+        if (Favorites.Count == 0) return;
+        foreach (var e in seen)
+            if (Favorites.Contains(e.Key) && !IsFavorite(e)) SaveReceiver(e);
     }
 }
 

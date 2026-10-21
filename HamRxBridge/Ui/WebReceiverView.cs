@@ -9,6 +9,7 @@ using HamRxBridge.Sdr;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 using static HamRxBridge.Ui.UiKit;
+using static HamRxBridge.Sdr.WebBridgeJs;
 
 namespace HamRxBridge.Ui;
 
@@ -34,9 +35,13 @@ public sealed class WebReceiverView : UserControl, IReceiverView
     RigMode _mode = RigMode.LSB;
     int _lo = -2900, _hi = -200;
     string? _lastUrl;
+    bool _compactWanted = true, _compactOn, _diagLogged;
+    DateTime _lastCompact = DateTime.MinValue;
+    double _volume = AppSettings.Current.Volume;
+    readonly System.Windows.Controls.Primitives.ToggleButton _compactBtn;
 
     public FrameworkElement Element => this;
-    public ReceiverCaps Caps { get; private set; } = new();
+    public ReceiverCaps Caps { get; private set; } = new() { Volume = true };
     public string ControlMethod { get; private set; } = "Connecting to page";
 
     public event Action<double, RigMode?>? ReceiverTuned;
@@ -49,6 +54,21 @@ public sealed class WebReceiverView : UserControl, IReceiverView
     public WebReceiverView(ReceiverEntry rx, double hz, RigMode mode)
     {
         _rx = rx; _hz = hz; _mode = mode;
+        _compactWanted = rx.Kind == SdrKind.WebSdr;
+        _compactBtn = Tog("Compact view", (_, _) => { _compactWanted = _compactBtn!.IsChecked == true; _ = ApplyCompactAsync(); },
+            Res("VioletBrush"));
+        _compactBtn.IsChecked = _compactWanted;
+        _compactBtn.ToolTip = "Show only the receiver's waterfall, controlled from your panel. Turn off to see the whole page.";
+
+        var root = new Grid();
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        var bar = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) };
+        bar.Children.Add(_compactBtn);
+        bar.Children.Add(IconBtn(Glyph.Refresh, "Reload page", (_, _) => NavigateTuned(true)));
+        bar.Children.Add(IconBtn(Glyph.Globe, "Open in my browser", (_, _) => OpenInBrowser(TunedUrl())));
+        root.Children.Add(bar);
+
         var grid = new Grid();
         grid.Children.Add(new Border
         {
@@ -57,7 +77,9 @@ public sealed class WebReceiverView : UserControl, IReceiverView
         });
         _overlay.HorizontalAlignment = HorizontalAlignment.Center;
         grid.Children.Add(_overlay);
-        Content = grid;
+        Grid.SetRow(grid, 1);
+        root.Children.Add(grid);
+        Content = root;
 
         _probe.Tick += async (_, _) => await ProbeAsync();
         _reloadDebounce.Tick += (_, _) => { _reloadDebounce.Stop(); NavigateTuned(false); };
@@ -73,11 +95,16 @@ public sealed class WebReceiverView : UserControl, IReceiverView
             var env = await CoreWebView2Environment.CreateAsync(null, data, opts);
             await _web.EnsureCoreWebView2Async(env);
             if (_disposed) return;
-            _web.CoreWebView2.NavigationCompleted += (_, e) =>
+            _web.DefaultBackgroundColor = System.Drawing.Color.FromArgb(255, 7, 11, 18);
+            await _web.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(AudioHookJs);
+            _web.CoreWebView2.NavigationCompleted += async (_, e) =>
             {
                 _overlay.Visibility = Visibility.Collapsed;
                 _navigatedAt = DateTime.UtcNow;
+                _compactOn = false;
+                _diagLogged = false;
                 if (!e.IsSuccess) Status($"Page failed to load ({e.WebErrorStatus})", StatusLevel.Bad);
+                await SetPageVolumeAsync();
             };
             _web.CoreWebView2.NewWindowRequested += (_, e) => { e.Handled = true; OpenInBrowser(e.Uri); };
             _ready = true;
@@ -118,31 +145,6 @@ public sealed class WebReceiverView : UserControl, IReceiverView
 
     // ------------------------------------------------------------- JavaScript bridge
 
-    const string ProbeWebSdr = @"(function(){try{
-var ok=(typeof setfreqif==='function'&&typeof set_mode==='function');
-var k=null;try{k=(typeof nominalfreq==='function')?Number(nominalfreq()):Number(window.freq);}catch(e){}
-var m='';try{m=String(window.mode||'');}catch(e){}
-return {ok:ok,kHz:(k!==null&&isFinite(k))?k:null,mode:m};}catch(e){return {ok:false};}})()";
-
-    const string ProbeKiwi = @"(function(){try{
-var ok=(typeof ext_tune==='function'&&typeof ext_get_freq==='function');
-var hz=null,m='';if(ok){try{hz=Number(ext_get_freq());m=String(ext_get_mode()||'');}catch(e){ok=false;}}
-return {ok:ok&&isFinite(hz)&&hz>0,kHz:hz?hz/1000:null,mode:m};}catch(e){return {ok:false};}})()";
-
-    static string TuneWebSdrJs(double kHz, string mode) => string.Create(CultureInfo.InvariantCulture, $@"(function(k,m){{try{{
-var t=(typeof bi!=='undefined'&&bi&&bi.length)?bi:((typeof bandinfo!=='undefined')?bandinfo:null);
-if(t&&typeof setband==='function'&&typeof band!=='undefined'){{
- var n=(typeof nvbands==='number'&&nvbands>0)?Math.min(nvbands,t.length):t.length;
- for(var i=0;i<n;i++){{var b=t[i];if(!b||typeof b.centerfreq!=='number')continue;var h=b.samplerate/2+4;
-  if(k>b.centerfreq-h&&k<b.centerfreq+h){{if(i!==band){{try{{b.vfo=k;}}catch(e){{}}setband(i);}}break;}}}}}}
-if(m)set_mode(m);setfreqif(k.toFixed(3));if(m)set_mode(m);return 'ok';}}catch(e){{return 'err '+e;}}}})({kHz:F3},'{mode}')");
-
-    static string TuneKiwiJs(double kHz, string mode, int lo, int hi) => string.Create(CultureInfo.InvariantCulture, $@"(function(k,m,lo,hi){{try{{
-var z=(typeof ext_zoom!=='undefined')?ext_zoom.CUR:undefined;
-ext_tune(k,m,z);
-if(typeof ext_set_passband==='function'&&lo!==hi)ext_set_passband(lo,hi);
-return 'ok';}}catch(e){{return 'err '+e;}}}})({kHz:F3},'{mode}',{lo},{hi})");
-
     async Task ProbeAsync()
     {
         if (!_ready || _disposed || _probing) return;
@@ -150,6 +152,9 @@ return 'ok';}}catch(e){{return 'err '+e;}}}})({kHz:F3},'{mode}',{lo},{hi})");
         try
         {
             string json = await _web.CoreWebView2.ExecuteScriptAsync(IsKiwi ? ProbeKiwi : ProbeWebSdr);
+            // Re-apply compact view every few seconds: the page adds its waterfall canvases after loading.
+            bool due = _compactWanted ? DateTime.UtcNow - _lastCompact > TimeSpan.FromSeconds(3) : _compactOn;
+            if (due && DateTime.UtcNow - _navigatedAt > TimeSpan.FromSeconds(1.5)) await ApplyCompactAsync();
             using var doc = JsonDocument.Parse(json);
             var r = doc.RootElement;
             bool ok = r.ValueKind == JsonValueKind.Object && r.TryGetProperty("ok", out var okEl) && okEl.ValueKind == JsonValueKind.True;
@@ -157,8 +162,9 @@ return 'ok';}}catch(e){{return 'err '+e;}}}})({kHz:F3},'{mode}',{lo},{hi})");
             if (ok && !_live)
             {
                 _live = true;
+                Log.Write($"Live control on for {_rx.BaseUrl}");
                 ControlMethod = IsKiwi ? "Live control of the KiwiSDR page" : "Live control of the WebSDR page";
-                Caps = new ReceiverCaps { Bandwidth = IsKiwi };
+                Caps = new ReceiverCaps { Bandwidth = IsKiwi, Volume = true };
                 CapsChanged?.Invoke();
                 Status("Connected. Your panel now controls this page directly.", StatusLevel.Good);
                 _seenHz = 0;
@@ -168,8 +174,9 @@ return 'ok';}}catch(e){{return 'err '+e;}}}})({kHz:F3},'{mode}',{lo},{hi})");
             if (!ok && !_live && DateTime.UtcNow - _navigatedAt > TimeSpan.FromSeconds(12))
             {
                 _navigatedAt = DateTime.MaxValue;
+                await LogDiagnosticsAsync();
                 ControlMethod = "Reload control (page has no live API)";
-                Caps = new ReceiverCaps();
+                Caps = new ReceiverCaps { Volume = true };
                 CapsChanged?.Invoke();
                 Status("This page does not offer live control, so it is retuned by reloading.", StatusLevel.Warn);
                 return;
@@ -223,6 +230,43 @@ return 'ok';}}catch(e){{return 'err '+e;}}}})({kHz:F3},'{mode}',{lo},{hi})");
         catch (Exception ex) { Log.Write("tune: " + ex.Message); }
     }
 
+    async Task LogDiagnosticsAsync()
+    {
+        if (_diagLogged || !_ready) return;
+        _diagLogged = true;
+        try { Log.Write($"Page diagnostics {_rx.BaseUrl}: {await _web.CoreWebView2.ExecuteScriptAsync(DiagJs)}"); }
+        catch (Exception ex) { Log.Write("diag: " + ex.Message); }
+    }
+
+    async Task ApplyCompactAsync()
+    {
+        if (!_ready) return;
+        _lastCompact = DateTime.UtcNow;
+        try
+        {
+            string r = await _web.CoreWebView2.ExecuteScriptAsync(CompactJs(_compactWanted));
+            _compactOn = _compactWanted && r.Contains("on");
+            if (r.Contains("nocanvas") && DateTime.UtcNow - _navigatedAt > TimeSpan.FromSeconds(15) && _compactWanted)
+            {
+                _compactWanted = false;           // this page has no waterfall canvas: show it whole
+                _compactBtn.IsChecked = false;
+                Log.Write("compact view: no waterfall canvas found, showing full page");
+            }
+        }
+        catch (Exception ex) { Log.Write("compact: " + ex.Message); }
+    }
+
+    async Task SetPageVolumeAsync()
+    {
+        if (!_ready) return;
+        try
+        {
+            await _web.CoreWebView2.ExecuteScriptAsync(string.Create(CultureInfo.InvariantCulture,
+                $"window.__hrbSetVolume&&window.__hrbSetVolume({_volume:F3})"));
+        }
+        catch { }
+    }
+
     // ------------------------------------------------------------- IReceiverView
 
     public void Tune(double hz, RigMode mode, int lowCut, int highCut)
@@ -240,7 +284,7 @@ return 'ok';}}catch(e){{return 'err '+e;}}}})({kHz:F3},'{mode}',{lo},{hi})");
     void ApplyMute() { if (_ready) _web.CoreWebView2.IsMuted = _muted || _txMuted; }
     public void SetMuted(bool muted) { _muted = muted; ApplyMute(); }
     public void SetTxMuted(bool muted) { _txMuted = muted; ApplyMute(); }
-    public void SetVolume(double v) { }
+    public void SetVolume(double v) { _volume = v; _ = SetPageVolumeAsync(); }
     public void SetAgc(bool on) { }
 
     void Status(string s, StatusLevel l) => StatusChanged?.Invoke(s, l);
