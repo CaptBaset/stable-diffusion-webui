@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using HamRxBridge.Sdr;
 
 namespace HamRxBridge;
@@ -38,6 +39,13 @@ public sealed class AppSettings
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "HamRxBridge");
     static string FilePath => Path.Combine(Folder, "settings.json");
 
+    // Receiver entries carry NaN for unknown SNR or position, which plain JSON cannot hold.
+    static readonly JsonSerializerOptions Json = new()
+    {
+        WriteIndented = true,
+        NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals
+    };
+
     public static AppSettings Current { get; } = Load();
 
     static AppSettings Load()
@@ -45,7 +53,7 @@ public sealed class AppSettings
         try
         {
             if (File.Exists(FilePath))
-                return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath)) ?? new AppSettings();
+                return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath), Json) ?? new AppSettings();
         }
         catch { }
         return new AppSettings();
@@ -56,9 +64,9 @@ public sealed class AppSettings
         try
         {
             Directory.CreateDirectory(Folder);
-            File.WriteAllText(FilePath, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
+            File.WriteAllText(FilePath, JsonSerializer.Serialize(this, Json));
         }
-        catch { }
+        catch (Exception ex) { Log.Write("settings save failed: " + ex.Message); }
     }
 
     public bool IsFavorite(ReceiverEntry e) => Favorites.Contains(e.Key);

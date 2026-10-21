@@ -236,7 +236,7 @@ public sealed class ControlPanel : UserControl
     void UpdatePresetChecks()
     {
         foreach (var child in _presets.Children)
-            if (child is ToggleButton t && t.Tag is double w) t.IsChecked = Math.Abs(w - _bw) < 1;
+            if (child is ToggleButton t && t.DataContext is double w) t.IsChecked = Math.Abs(w - _bw) < 1;
     }
 
     // ------------------------------------------------------------- state from the page
@@ -258,7 +258,7 @@ public sealed class ControlPanel : UserControl
             foreach (var w in Passbands.Presets(mode))
             {
                 double width = w;
-                var t = new ToggleButton { Content = width >= 1000 ? $"{width / 1000:0.#}k" : $"{width:0}", Tag = width };
+                var t = new ToggleButton { Content = width >= 1000 ? $"{width / 1000:0.#}k" : $"{width:0}", DataContext = width };
                 t.Click += (_, _) => BandwidthRequested?.Invoke(width);
                 _presets.Children.Add(t);
             }
@@ -272,8 +272,13 @@ public sealed class ControlPanel : UserControl
         UpdatePresetChecks();
     }
 
+    DateTime _lastMeter;
+
     public void ShowSignal(double dbm)
     {
+        var now = DateTime.UtcNow;
+        if ((now - _lastMeter).TotalMilliseconds < 50) return;
+        _lastMeter = now;
         _meter.Set(dbm);
         _sText.Text = dbm <= -73 ? $"S{Math.Max(0, Math.Round(9 + (dbm + 73) / 6)):0}" : $"S9+{dbm + 73:0}";
         _dbm.Text = $"{dbm:0} dBm";

@@ -15,6 +15,12 @@ public sealed class SMeter : FrameworkElement
     static readonly Brush Bg = UiKit.Hex("#0A111C");
     static readonly Brush Off = UiKit.Hex("#16233A");
     static readonly Brush TextB = UiKit.Hex("#7F93AD");
+    static readonly Brush[] SegBrush = Enumerable.Range(0, Segments).Select(i =>
+    {
+        var b = new SolidColorBrush(SegColor((i + 0.5) / Segments));
+        b.Freeze();
+        return (Brush)b;
+    }).ToArray();
 
     public bool Available
     {
@@ -72,8 +78,7 @@ public sealed class SMeter : FrameworkElement
         for (int i = 0; i < Segments; i++)
         {
             double t = (i + 0.5) / Segments;
-            var c = SegColor(t);
-            var brush = t <= lit ? new SolidColorBrush(c) : Off;
+            var brush = t <= lit ? SegBrush[i] : Off;
             dc.DrawRoundedRectangle(brush, null, new Rect(pad + i * (segW + segGap), 8, segW, barH), 1.5, 1.5);
         }
         double px = pad + Pos(_peak) * (w - 2 * pad);
