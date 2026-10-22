@@ -49,7 +49,7 @@ public sealed class KiwiNativeView : UserControl, IReceiverView
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
-        var bar = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
+        var bar = new WrapPanel { Margin = new Thickness(0, 0, 0, 6) };   // wraps on small screens
         var left = new StackPanel { Orientation = Orientation.Horizontal };
         left.Children.Add(IconBtn(Glyph.ZoomOut, "Zoom out", (_, _) => ChangeZoom(-1)));
         left.Children.Add(IconBtn(Glyph.ZoomIn, "Zoom in", (_, _) => ChangeZoom(+1)));
@@ -61,9 +61,8 @@ public sealed class KiwiNativeView : UserControl, IReceiverView
         right.Children.Add(_retry);
         right.Children.Add(IconBtn(Glyph.Globe, "Open Kiwi web page", (_, _) => OpenWebPageRequested?.Invoke(),
             "Show this receiver's own KiwiSDR page instead (still controlled by this app)"));
-        DockPanel.SetDock(right, Dock.Right);
-        bar.Children.Add(right);
         bar.Children.Add(left);
+        bar.Children.Add(right);
         root.Children.Add(bar);
 
         var frame = new Border

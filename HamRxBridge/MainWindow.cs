@@ -22,14 +22,18 @@ public sealed class MainWindow : Window
 
     readonly Button _receiversBtn;
     readonly Ellipse _led = new() { Width = 10, Height = 10, Margin = new Thickness(10, 0, 6, 0) };
-    readonly TextBlock _rigText = Label("", 12, "DimBrush");
+    readonly TextBlock _rigText = new()
+    {
+        FontSize = 12, Foreground = Res("DimBrush"), VerticalAlignment = VerticalAlignment.Center,
+        MaxWidth = 380, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(4, 0, 4, 0)
+    };
     readonly TextBlock _status = Label("Ready", 12, "DimBrush");
     readonly DockPanel _root = new();
 
     public MainWindow()
     {
         Title = "HamRxBridge  By AP2FLY";
-        Width = 1480; Height = 920; MinWidth = 1100; MinHeight = 700;
+        FitToScreen();
         Background = Res("BgBrush");
         Foreground = Res("TextBrush");
         FontFamily = TextFont;
@@ -65,7 +69,10 @@ public sealed class MainWindow : Window
             BorderThickness = new Thickness(0, 0, 0, 1),
             Padding = new Thickness(12, 8, 12, 8)
         };
-        var dock = new DockPanel { LastChildFill = false };
+        // left: logo and navigation at natural size; right: radio status takes what is left and trims
+        var dock = new Grid();
+        dock.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        dock.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         var left = new StackPanel { Orientation = Orientation.Horizontal };
         try
         {
@@ -80,7 +87,6 @@ public sealed class MainWindow : Window
         left.Children.Add(IconBtn(Glyph.Star, "My receivers", (_, _) => ShowMine()));
         left.Children.Add(_receiversBtn);
         left.Children.Add(IconBtn(Glyph.Settings, "Settings", (_, _) => ShowSettings()));
-        DockPanel.SetDock(left, Dock.Left);
         dock.Children.Add(left);
 
         var pill = new Border
@@ -94,7 +100,9 @@ public sealed class MainWindow : Window
         pillRow.Children.Add(_rigText);
         pill.Child = pillRow;
         pill.MouseLeftButtonUp += (_, _) => ShowSettings();
-        DockPanel.SetDock(pill, Dock.Right);
+        pill.HorizontalAlignment = HorizontalAlignment.Right;
+        pill.Margin = new Thickness(10, 0, 0, 0);
+        Grid.SetColumn(pill, 1);
         dock.Children.Add(pill);
 
         bar.Child = dock;
@@ -117,6 +125,22 @@ public sealed class MainWindow : Window
         dock.Children.Add(_status);
         bar.Child = dock;
         return bar;
+    }
+
+    /// <summary>
+    /// Size the window to the screen it opens on. Small laptop screens (for example 1366x768,
+    /// or any screen with 125 to 150 percent scaling) open maximized, and the minimum size can
+    /// never exceed the usable screen area, so nothing is ever pushed off the edges.
+    /// </summary>
+    void FitToScreen()
+    {
+        var wa = SystemParameters.WorkArea;          // usable area in DIPs, taskbar excluded
+        MinWidth = Math.Min(900, wa.Width);
+        MinHeight = Math.Min(560, wa.Height);
+        Width = Math.Min(1480, wa.Width - 20);
+        Height = Math.Min(920, wa.Height - 20);
+        if (wa.Width < 1500 || wa.Height < 900) WindowState = WindowState.Maximized;
+        Log.Write($"Screen work area {wa.Width:0}x{wa.Height:0}, window {Width:0}x{Height:0}, {(WindowState == WindowState.Maximized ? "maximized" : "normal")}");
     }
 
     void SetStatus(string text, StatusLevel level)
