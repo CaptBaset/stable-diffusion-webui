@@ -99,10 +99,12 @@ public sealed class KiwiNativeView : UserControl, IReceiverView
     public void Tune(double hz, RigMode mode, int lowCut, int highCut)
     {
         _hz = hz; _mode = mode; _lo = lowCut; _hi = highCut;
-        _pan.TunedHz = hz; _pan.LowCutHz = lowCut; _pan.HighCutHz = highCut;
+        double off = Passbands.CarrierOffset(mode);
+        // red line on the dial (signal) frequency, passband drawn where it really listens
+        _pan.TunedHz = hz; _pan.LowCutHz = lowCut + off; _pan.HighCutHz = highCut + off;
         _pan.RefreshOverlay();
         if (_kiwi == null) return;
-        _ = _kiwi.SetTuning(mode, hz, lowCut, highCut);
+        _ = _kiwi.SetTuning(mode, hz + off, lowCut, highCut);
         double span = _kiwi.BandwidthHz / Math.Pow(2, _zoom);
         if (_rows == 0 || Math.Abs(hz - _pan.CenterHz) > span * 0.40) _ = _kiwi.SetView(_zoom, hz);
     }
@@ -145,7 +147,7 @@ public sealed class KiwiNativeView : UserControl, IReceiverView
             _pan.PushRow(bins, start, span);
             if (_rows == 3) _pan.AutoRange();
             if (_rows % 15 == 1)
-                _viewText.Text = $"   zoom {_zoom}   span {span / 1000:0.#} kHz   floor {_pan.LastRowMin:0} dBm";
+                _viewText.Text = $"   zoom {_zoom}   span {span / 1000:0.#} kHz   noise floor {_pan.NoiseFloor:0} dBm";
         });
         k.Info += s => Log.Write($"kiwi {_rx.Host}: {s}");
         k.Disconnected += msg => Dispatcher.BeginInvoke(() => { if (ReferenceEquals(k, _kiwi)) OnDisconnected(msg); });
@@ -158,7 +160,7 @@ public sealed class KiwiNativeView : UserControl, IReceiverView
             await k.ConnectAsync(_rx, AppSettings.Current.KiwiPassword, ident, AppSettings.Current.KiwiCompression, _cts.Token);
             if (_disposed) return;
             await k.SetAgc(_agc);
-            await k.SetTuning(_mode, _hz, _lo, _hi);
+            await k.SetTuning(_mode, _hz + Passbands.CarrierOffset(_mode), _lo, _hi);
             await k.SetView(_zoom, _hz);
             Status("Connected, waiting for the receiver ...", StatusLevel.Info);
             _watchdog.Start();

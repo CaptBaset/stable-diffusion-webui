@@ -49,6 +49,7 @@ public sealed class ControlPanel : UserControl
     public event Action<bool>? MuteChanged;
     public event Action<bool>? AgcChanged;
     public event Action<SyncMode>? SyncChanged;
+    public event Action? MuteOnTxChanged;
 
     public int StepHz => Steps[_step];
 
@@ -190,7 +191,7 @@ public sealed class ControlPanel : UserControl
         radio.Children.Add(_rigFreq);
         radio.Children.Add(Cols(3, _syncOff, _syncOne, _syncTwo));
         _muteTx.IsChecked = AppSettings.Current.MuteOnTx;
-        _muteTx.Click += (_, _) => { AppSettings.Current.MuteOnTx = _muteTx.IsChecked == true; AppSettings.Current.Save(); };
+        _muteTx.Click += (_, _) => { AppSettings.Current.MuteOnTx = _muteTx.IsChecked == true; AppSettings.Current.Save(); MuteOnTxChanged?.Invoke(); };
         radio.Children.Add(_muteTx);
         stack.Children.Add(Card(radio));
 

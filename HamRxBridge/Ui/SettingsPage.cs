@@ -134,6 +134,16 @@ public sealed class SettingsPage : UserControl
         _muteTx.IsChecked = s.MuteOnTx;
         _muteTx.Click += (_, _) => { s.MuteOnTx = _muteTx.IsChecked == true; s.Save(); };
         rx.Children.Add(_muteTx);
+        var pitchRow = new WrapPanel();
+        pitchRow.Children.Add(Label("CW pitch (Hz). Set the same as your radio's CW PITCH menu; IC-7300 default is 600", 12, "DimBrush"));
+        var pitch = new TextBox { Width = 70, Text = s.CwPitch.ToString() };
+        pitch.LostFocus += (_, _) =>
+        {
+            if (int.TryParse(pitch.Text, out var v) && v is >= 300 and <= 1000) { s.CwPitch = v; s.Save(); }
+            else pitch.Text = s.CwPitch.ToString();
+        };
+        pitchRow.Children.Add(pitch);
+        rx.Children.Add(pitchRow);
         stack.Children.Add(Card(rx));
 
         // ---- Windows integration

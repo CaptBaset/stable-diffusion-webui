@@ -52,17 +52,25 @@ window.__hrbSetVolume=function(v){window.__hrbVol=v;gains.forEach(function(g){tr
 try{document.querySelectorAll('audio,video').forEach(function(a){a.volume=Math.min(1,v);});}catch(e){}
 for(var i=0;i<window.frames.length;i++){try{if(window.frames[i].__hrbSetVolume)window.frames[i].__hrbSetVolume(v);}catch(e){}}return gains.length;};})();";
 
-    /// <summary>Hide everything except the page's large canvases (its waterfall and scale). Reversible.</summary>
+    /// <summary>
+    /// Compact view: find the smallest block that contains all of the page's large canvases
+    /// (the waterfall), keep that block exactly as the page built it (scale, markers, labels),
+    /// and hide only what lies outside it. Returns "on count width" or "nocanvas". Reversible.
+    /// </summary>
     public static string CompactJs(bool on) => @"(function(on){try{var id='__hrb_compact';var st=document.getElementById(id);
-document.querySelectorAll('[data-hrb-keep]').forEach(function(e){e.removeAttribute('data-hrb-keep');});
+document.querySelectorAll('[data-hrb-keep],[data-hrb-box]').forEach(function(e){e.removeAttribute('data-hrb-keep');e.removeAttribute('data-hrb-box');});
 if(!on){if(st)st.remove();return 'off';}
-var cs=[].slice.call(document.querySelectorAll('canvas')).filter(function(c){var r=c.getBoundingClientRect();return r.width*r.height>15000;});
+var cs=[].slice.call(document.querySelectorAll('canvas')).filter(function(c){var r=c.getBoundingClientRect();return r.width>=300&&r.width*r.height>15000;});
 if(!cs.length)return 'nocanvas';
-cs.forEach(function(c){var e=c;while(e&&e!==document.documentElement){e.setAttribute('data-hrb-keep','1');e=e.parentElement;}
-if(c.parentElement)[].slice.call(c.parentElement.querySelectorAll('canvas')).forEach(function(x){x.setAttribute('data-hrb-keep','1');});});
+var box=cs[0].parentElement;while(box&&box!==document.body&&!cs.every(function(c){return box.contains(c);}))box=box.parentElement;
+if(!box||box===document.body||box===document.documentElement)box=cs[0].parentElement;
+box.setAttribute('data-hrb-box','1');var e=box.parentElement;while(e&&e!==document.documentElement){e.setAttribute('data-hrb-keep','1');e=e.parentElement;}
 var fresh=!st;if(!st){st=document.createElement('style');st.id=id;(document.head||document.documentElement).appendChild(st);}
-st.textContent='body *:not([data-hrb-keep]){display:none !important;}html,body{background:#070B12 !important;margin:0 !important;overflow:auto !important;}';
-if(fresh)cs[0].scrollIntoView({block:'start'});return 'on '+cs.length;}catch(e){return 'err '+e;}})(" + (on ? "true" : "false") + ")";
+st.textContent='[data-hrb-keep]>:not([data-hrb-keep]):not([data-hrb-box]){display:none !important;}'
++'html,body{background:#070B12 !important;margin:0 !important;}'
++'[data-hrb-keep]{margin:0 !important;padding:0 !important;border:0 !important;}';
+if(fresh)window.scrollTo(0,0);
+var w=Math.ceil(box.getBoundingClientRect().width);return 'on '+cs.length+' '+w;}catch(e){return 'err '+e;}})(" + (on ? "true" : "false") + ")";
 
     public static string TuneKiwiJs(double kHz, string mode, int lo, int hi) => string.Create(CultureInfo.InvariantCulture, $@"(function(k,m,lo,hi){{try{{
 var z=(typeof ext_zoom!=='undefined')?ext_zoom.CUR:undefined;

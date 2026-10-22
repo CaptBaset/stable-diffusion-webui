@@ -30,6 +30,9 @@ public sealed class PanadapterControl : FrameworkElement
     public double LastRowMin { get; private set; }
     public double LastRowMax { get; private set; }
 
+    /// <summary>10th percentile of the current spectrum: a fair noise floor figure.</summary>
+    public double NoiseFloor => _haveSpec ? _spec.OrderBy(x => x).ElementAt(Bins / 10) : double.NaN;
+
     public event Action<double>? TuneRequested;
     public event Action<int>? WheelStep;
 

@@ -244,8 +244,16 @@ public sealed class WebReceiverView : UserControl, IReceiverView
         _lastCompact = DateTime.UtcNow;
         try
         {
-            string r = await _web.CoreWebView2.ExecuteScriptAsync(CompactJs(_compactWanted));
-            _compactOn = _compactWanted && r.Contains("on");
+            string r = (await _web.CoreWebView2.ExecuteScriptAsync(CompactJs(_compactWanted))).Trim('"');
+            _compactOn = _compactWanted && r.StartsWith("on");
+            // Fit the waterfall block to our panel width
+            var parts = r.Split(' ');
+            if (_compactOn && parts.Length == 3 && double.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out var boxW) && boxW > 100)
+            {
+                double fit = Math.Clamp((_web.ActualWidth - 24) / boxW, 0.5, 2.0);
+                if (Math.Abs(fit - _web.ZoomFactor) > 0.03) _web.ZoomFactor = fit;
+            }
+            else if (!_compactWanted && Math.Abs(_web.ZoomFactor - 1) > 0.01) _web.ZoomFactor = 1;
             if (r.Contains("nocanvas") && DateTime.UtcNow - _navigatedAt > TimeSpan.FromSeconds(15) && _compactWanted)
             {
                 _compactWanted = false;           // this page has no waterfall canvas: show it whole

@@ -25,6 +25,9 @@ public sealed class AppSettings
     public SyncMode Sync { get; set; } = SyncMode.RadioToSdr;
     public bool MuteOnTx { get; set; } = true;
 
+    /// <summary>CW pitch in Hz. Radios show the signal frequency in CW and play it at this tone (IC-7300 default 600).</summary>
+    public int CwPitch { get; set; } = 600;
+
     // receiver
     public double Volume { get; set; } = 0.7;
     public bool KiwiCompression { get; set; } = true;

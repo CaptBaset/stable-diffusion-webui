@@ -109,6 +109,7 @@ public sealed class ReceiverPage : UserControl, IDisposable
         _panel.MuteChanged += m => _view.SetMuted(m);
         _panel.AgcChanged += a => _view.SetAgc(a);
         _panel.SyncChanged += _ => { OnRig(); };
+        _panel.MuteOnTxChanged += ApplyTxMute;
 
         _view.ReceiverTuned += FromReceiver;
         _view.Signal += d => _panel.ShowSignal(d);
@@ -175,8 +176,7 @@ public sealed class ReceiverPage : UserControl, IDisposable
         if (b.Transmitting != _lastTx)
         {
             _lastTx = b.Transmitting;
-            _view.SetTxMuted(_lastTx && AppSettings.Current.MuteOnTx);
-            StatusChanged?.Invoke(_lastTx ? "Transmitting: receiver muted" : "Receiving", _lastTx ? StatusLevel.Warn : StatusLevel.Info);
+            ApplyTxMute();
         }
 
         if (b.Link != RigLink.Online || b.FreqHz <= 0) return;
@@ -193,6 +193,14 @@ public sealed class ReceiverPage : UserControl, IDisposable
         _mode = mode;
         _panel.ShowState(_hz, _mode, _bw);
         PushToView();
+    }
+
+    void ApplyTxMute()
+    {
+        bool mute = _lastTx && AppSettings.Current.MuteOnTx;
+        _view.SetTxMuted(mute);
+        if (!_lastTx) StatusChanged?.Invoke("Receiving", StatusLevel.Info);
+        else StatusChanged?.Invoke(mute ? "Transmitting: receiver muted" : "Transmitting: receiver stays on (mute on TX is off)", StatusLevel.Warn);
     }
 
     void PushToView()

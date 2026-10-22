@@ -51,12 +51,21 @@ public static class Passbands
         _ => new double[] { 9000, 12000 }
     };
 
-    /// <summary>Passband edges relative to the dial frequency, in Hz.</summary>
+    public static int CwPitch => Math.Clamp(AppSettings.Current.CwPitch, 300, 1000);
+
+    /// <summary>
+    /// Passband edges in Hz relative to the carrier (KiwiSDR convention). For SSB and AM the
+    /// carrier equals the radio dial. In CW the dial shows the signal frequency, so the carrier
+    /// sits one pitch below it and the passband is centred on the pitch.
+    /// </summary>
+    /// <summary>Carrier minus dial: negative pitch in CW, zero otherwise.</summary>
+    public static double CarrierOffset(RigMode m) => m == RigMode.CW ? -CwPitch : 0;
+
     public static (int lo, int hi) Edges(RigMode m, double width) => m switch
     {
         RigMode.USB => (200, (int)(200 + width)),
         RigMode.LSB => ((int)-(200 + width), -200),
-        RigMode.CW => ((int)(500 - width / 2), (int)(500 + width / 2)),
+        RigMode.CW => ((int)(CwPitch - width / 2), (int)(CwPitch + width / 2)),
         _ => ((int)-(width / 2), (int)(width / 2))
     };
 }
