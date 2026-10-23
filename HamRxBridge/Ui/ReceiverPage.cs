@@ -108,6 +108,7 @@ public sealed class ReceiverPage : UserControl, IDisposable
         _panel.VolumeChanged += v => _view.SetVolume(v);
         _panel.MuteChanged += m => _view.SetMuted(m);
         _panel.AgcChanged += a => _view.SetAgc(a);
+        _panel.DspChanged += (nb, nr, an) => _view.SetDsp(nb, nr, an);
         _panel.SyncChanged += _ => { OnRig(); };
         _panel.MuteOnTxChanged += ApplyTxMute;
 
@@ -119,6 +120,7 @@ public sealed class ReceiverPage : UserControl, IDisposable
         _rig.Changed += OnRig;
         PreviewKeyDown += OnKey;
 
+        _view.SetDsp(AppSettings.Current.NoiseBlanker, AppSettings.Current.NoiseReduction, AppSettings.Current.AutoNotch);
         _panel.ApplyCaps(_view.Caps);
         _panel.ShowState(_hz, _mode, _bw);
         _panel.ShowRig(_rig.Backend, AppSettings.Current.Sync);

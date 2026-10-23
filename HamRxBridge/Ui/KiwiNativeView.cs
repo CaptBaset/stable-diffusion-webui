@@ -30,7 +30,9 @@ public sealed class KiwiNativeView : UserControl, IReceiverView
     bool _disposed, _gotAudio;
 
     public FrameworkElement Element => this;
-    public ReceiverCaps Caps { get; } = new() { Bandwidth = true, SMeter = true, Volume = true, Agc = true };
+    public ReceiverCaps Caps { get; } = new() { Bandwidth = true, SMeter = true, Volume = true, Agc = true, Dsp = true };
+    bool _nb, _nr, _an, _paused;
+    Window? _window;
     public string ControlMethod => "Native KiwiSDR connection";
 
     public event Action<double, RigMode?>? ReceiverTuned;
@@ -87,7 +89,13 @@ public sealed class KiwiNativeView : UserControl, IReceiverView
 
         _audio.Volume = (float)AppSettings.Current.Volume;
         _watchdog.Tick += (_, _) => Watchdog();
-        Loaded += async (_, _) => { if (_kiwi == null) await ConnectAsync(); };
+        Loaded += async (_, _) =>
+        {
+            _window = Window.GetWindow(this);
+            if (_window != null) _window.StateChanged += OnWindowState;
+            if (_kiwi == null) await ConnectAsync();
+        };
+        Unloaded += (_, _) => { if (_window != null) _window.StateChanged -= OnWindowState; };
     }
 
     /// <summary>Mouse wheel over the waterfall, handled by the page with the current step size.</summary>
@@ -97,7 +105,9 @@ public sealed class KiwiNativeView : UserControl, IReceiverView
 
     public void Tune(double hz, RigMode mode, int lowCut, int highCut)
     {
+        bool cwChanged = (mode == RigMode.CW) != (_mode == RigMode.CW);
         _hz = hz; _mode = mode; _lo = lowCut; _hi = highCut;
+        if (cwChanged && _kiwi != null) _ = _kiwi.SetAgc(_agc, mode == RigMode.CW);   // CW has its own AGC threshold
         double off = Passbands.CarrierOffset(mode);
         // red line on the dial (signal) frequency, passband drawn where it really listens
         _pan.TunedHz = hz; _pan.LowCutHz = lowCut + off; _pan.HighCutHz = highCut + off;
@@ -111,7 +121,26 @@ public sealed class KiwiNativeView : UserControl, IReceiverView
     public void SetMuted(bool muted) => _audio.Muted = muted;
     public void SetTxMuted(bool muted) => _audio.TxMuted = muted;
     public void SetVolume(double v) { _audio.Volume = (float)v; }
-    public void SetAgc(bool on) { _agc = on; if (_kiwi != null) _ = _kiwi.SetAgc(on); }
+    public void SetAgc(bool on) { _agc = on; if (_kiwi != null) _ = _kiwi.SetAgc(on, _mode == RigMode.CW); }
+
+    public void SetDsp(bool noiseBlanker, bool noiseReduction, bool autoNotch)
+    {
+        _nb = noiseBlanker; _nr = noiseReduction; _an = autoNotch;
+        if (_kiwi != null) _ = _kiwi.SetDsp(_nb, _nr, _an);
+    }
+
+    /// <summary>
+    /// Idle mode: while the window is minimized nothing is drawn and the receiver sends the
+    /// waterfall at its slowest rate. Audio keeps playing.
+    /// </summary>
+    void OnWindowState(object? sender, EventArgs e)
+    {
+        bool minimized = _window?.WindowState == WindowState.Minimized;
+        if (minimized == _paused) return;
+        _paused = minimized;
+        if (_kiwi != null) _ = _kiwi.SetWaterfallSpeed(minimized ? 1 : 3);
+        Log.Write(minimized ? "Idle: waterfall paused" : "Idle: waterfall resumed");
+    }
 
     void ChangeZoom(int d)
     {
@@ -143,6 +172,7 @@ public sealed class KiwiNativeView : UserControl, IReceiverView
         {
             if (!ReferenceEquals(k, _kiwi)) return;
             _rows++; _quiet = 0;
+            if (_paused) return;                 // minimized: no drawing at all
             _pan.PushRow(bins, start, span);
             if (_rows == 3) _pan.AutoRange();
             if (_rows % 15 == 1)
@@ -158,7 +188,8 @@ public sealed class KiwiNativeView : UserControl, IReceiverView
             string ident = string.IsNullOrWhiteSpace(AppSettings.Current.Callsign) ? "HamRxBridge" : AppSettings.Current.Callsign;
             await k.ConnectAsync(_rx, AppSettings.Current.KiwiPassword, ident, AppSettings.Current.KiwiCompression, _cts.Token);
             if (_disposed) return;
-            await k.SetAgc(_agc);
+            await k.SetAgc(_agc, _mode == RigMode.CW);
+            await k.SetDsp(_nb, _nr, _an);
             await k.SetTuning(_mode, _hz + Passbands.CarrierOffset(_mode), _lo, _hi);
             await k.SetView(_zoom, _hz);
             Status("Connected, waiting for the receiver ...", StatusLevel.Info);

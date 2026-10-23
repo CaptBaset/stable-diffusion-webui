@@ -48,6 +48,8 @@ public sealed class ControlPanel : UserControl
     public event Action<double>? VolumeChanged;
     public event Action<bool>? MuteChanged;
     public event Action<bool>? AgcChanged;
+    public event Action<bool, bool, bool>? DspChanged;
+    readonly System.Windows.Controls.Primitives.ToggleButton _nb, _nr, _an;
     public event Action<SyncMode>? SyncChanged;
     public event Action? MuteOnTxChanged;
 
@@ -58,6 +60,15 @@ public sealed class ControlPanel : UserControl
         Width = 352;
         _mute = Tog("Mute", (_, _) => MuteChanged?.Invoke(_mute!.IsChecked == true), Res("BadBrush"));
         _agc = Tog("AGC", (_, _) => AgcChanged?.Invoke(_agc!.IsChecked == true), Res("GoodBrush"));
+        _nb = Tog("NB", (_, _) => DspToggled(), Res("WarnBrush"));
+        _nr = Tog("NR", (_, _) => DspToggled(), Res("WarnBrush"));
+        _an = Tog("Notch", (_, _) => DspToggled(), Res("WarnBrush"));
+        _nb.ToolTip = "Noise blanker: removes impulse noise (ignition, power line clicks). Runs on the receiver.";
+        _nr.ToolTip = "Noise reduction (LMS): lowers hiss on weak signals. Runs on the receiver.";
+        _an.ToolTip = "Autonotch: removes steady carriers and heterodyne whistles. Runs on the receiver.";
+        _nb.IsChecked = AppSettings.Current.NoiseBlanker;
+        _nr.IsChecked = AppSettings.Current.NoiseReduction;
+        _an.IsChecked = AppSettings.Current.AutoNotch;
         _agc.IsChecked = true;
         _syncOff = Tog("Off", (_, _) => PickSync(SyncMode.Off));
         _syncOne = Tog("Radio → SDR", (_, _) => PickSync(SyncMode.RadioToSdr));
@@ -176,6 +187,11 @@ public sealed class ControlPanel : UserControl
         aRow.Children.Add(aBtns);
         aRow.Children.Add(_vol);
         audio.Children.Add(aRow);
+        var dspRow = new System.Windows.Controls.Primitives.UniformGrid { Columns = 3, Margin = new Thickness(0, 4, 0, 0) };
+        dspRow.Children.Add(_nb);
+        dspRow.Children.Add(_nr);
+        dspRow.Children.Add(_an);
+        audio.Children.Add(dspRow);
         _audioCard = Card(audio);
         stack.Children.Add(_audioCard);
         _vol.Value = AppSettings.Current.Volume;
@@ -285,8 +301,19 @@ public sealed class ControlPanel : UserControl
         _dbm.Text = $"{dbm:0} dBm";
     }
 
+    void DspToggled()
+    {
+        var s = AppSettings.Current;
+        s.NoiseBlanker = _nb.IsChecked == true;
+        s.NoiseReduction = _nr.IsChecked == true;
+        s.AutoNotch = _an.IsChecked == true;
+        s.Save();
+        DspChanged?.Invoke(s.NoiseBlanker, s.NoiseReduction, s.AutoNotch);
+    }
+
     public void ApplyCaps(ReceiverCaps caps)
     {
+        _nb.IsEnabled = _nr.IsEnabled = _an.IsEnabled = caps.Dsp;
         _meter.Available = caps.SMeter;
         if (!caps.SMeter) { _sText.Text = ""; _dbm.Text = ""; }
         _bwCard.IsEnabled = caps.Bandwidth;

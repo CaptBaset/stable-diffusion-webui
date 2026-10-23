@@ -83,7 +83,13 @@ public sealed class WebReceiverView : UserControl, IReceiverView
 
         _probe.Tick += async (_, _) => await ProbeAsync();
         _reloadDebounce.Tick += (_, _) => { _reloadDebounce.Stop(); NavigateTuned(false); };
-        Loaded += async (_, _) => { if (!_ready) await InitAsync(); };
+        Loaded += async (_, _) =>
+        {
+            _window = Window.GetWindow(this);
+            if (_window != null) _window.StateChanged += OnWindowState;
+            if (!_ready) await InitAsync();
+        };
+        Unloaded += (_, _) => { if (_window != null) _window.StateChanged -= OnWindowState; };
     }
 
     async Task InitAsync()
@@ -294,6 +300,22 @@ public sealed class WebReceiverView : UserControl, IReceiverView
     public void SetTxMuted(bool muted) { _txMuted = muted; ApplyMute(); }
     public void SetVolume(double v) { _volume = v; _ = SetPageVolumeAsync(); }
     public void SetAgc(bool on) { }
+    public void SetDsp(bool noiseBlanker, bool noiseReduction, bool autoNotch) { }
+
+    Window? _window;
+
+    /// <summary>While minimized, ask the browser engine to trim its memory; restore when shown.</summary>
+    void OnWindowState(object? sender, EventArgs e)
+    {
+        if (!_ready) return;
+        try
+        {
+            _web.CoreWebView2.MemoryUsageTargetLevel = _window?.WindowState == WindowState.Minimized
+                ? CoreWebView2MemoryUsageTargetLevel.Low
+                : CoreWebView2MemoryUsageTargetLevel.Normal;
+        }
+        catch { }
+    }
 
     void Status(string s, StatusLevel l) => StatusChanged?.Invoke(s, l);
 

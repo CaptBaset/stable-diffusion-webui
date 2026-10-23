@@ -11,6 +11,8 @@ public sealed class ReceiverCaps
     public bool SMeter { get; init; }
     public bool Volume { get; init; }
     public bool Agc { get; init; }
+    /// <summary>Receiver side noise blanker, noise reduction and autonotch.</summary>
+    public bool Dsp { get; init; }
 }
 
 /// <summary>One receiver display that the control panel drives.</summary>
@@ -25,6 +27,7 @@ public interface IReceiverView : IDisposable
     void SetTxMuted(bool muted);
     void SetVolume(double volume);
     void SetAgc(bool on);
+    void SetDsp(bool noiseBlanker, bool noiseReduction, bool autoNotch);
 
     /// <summary>The operator tuned on the receiver itself (waterfall click or the web page). Mode is null when unknown.</summary>
     event Action<double, RigMode?>? ReceiverTuned;

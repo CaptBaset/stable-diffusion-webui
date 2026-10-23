@@ -31,7 +31,9 @@ public sealed class KiwiClient : IDisposable
     RigMode _mode = RigMode.USB;
     double _hz = 7_100_000;
     int _lo = 300, _hi = 2700;
-    bool _agc = true;
+    bool _agc = true, _agcCw;
+    bool _nb, _nr, _an;
+    int _wfSpeed = 3;
     int _zoom = 7;
     double _viewCenterHz = 7_100_000;
 
@@ -91,14 +93,60 @@ public sealed class KiwiClient : IDisposable
             $"SET mod={RigModeInfo.ToWire(_mode)} low_cut={_lo} high_cut={_hi} freq={baseband:F3}"));
     }
 
-    public Task SetAgc(bool on)
+    /// <summary>AGC on or off. CW uses the Kiwi's own CW threshold (-130 dBm), voice -100 dBm.</summary>
+    public Task SetAgc(bool on, bool cw = false)
     {
-        _agc = on;
+        _agc = on; _agcCw = cw;
         return _sndReady ? SendAgc() : Task.CompletedTask;
     }
 
     Task SendAgc() => Send(_snd, _sndLock,
-        $"SET agc={(_agc ? 1 : 0)} hang=0 thresh=-100 slope=6 decay=1000 manGain=50");
+        $"SET agc={(_agc ? 1 : 0)} hang=0 thresh={(_agcCw ? -130 : -100)} slope=6 decay=1000 manGain=50");
+
+    /// <summary>
+    /// Server side DSP (runs on the receiver, costs this PC nothing): noise blanker, noise
+    /// reduction and autonotch, with the KiwiSDR web UI's own default parameters.
+    /// </summary>
+    public Task SetDsp(bool noiseBlanker, bool noiseReduction, bool autoNotch)
+    {
+        _nb = noiseBlanker; _nr = noiseReduction; _an = autoNotch;
+        return _sndReady ? SendDsp() : Task.CompletedTask;
+    }
+
+    async Task SendDsp()
+    {
+        // noise blanker: standard algorithm, gate 100 us, threshold 50
+        if (_nb)
+        {
+            await Send(_snd, _sndLock, "SET nb algo=1");
+            await Send(_snd, _sndLock, "SET nb type=0 param=0 pval=100");
+            await Send(_snd, _sndLock, "SET nb type=0 param=1 pval=50");
+            await Send(_snd, _sndLock, "SET nb type=0 en=1");
+        }
+        else
+        {
+            await Send(_snd, _sndLock, "SET nb algo=0");
+            await Send(_snd, _sndLock, "SET nb type=0 en=0");
+        }
+
+        // noise reduction and autonotch: WDSP LMS, taps 64, delay 16, gain 8e-5, leakage 0.125
+        await Send(_snd, _sndLock, $"SET nr algo={(_nr || _an ? 1 : 0)}");
+        for (int type = 0; type <= 1; type++)
+        {
+            await Send(_snd, _sndLock, $"SET nr type={type} param=0 pval=64");
+            await Send(_snd, _sndLock, $"SET nr type={type} param=1 pval=16");
+            await Send(_snd, _sndLock, $"SET nr type={type} param=2 pval=8e-05");
+            await Send(_snd, _sndLock, $"SET nr type={type} param=3 pval=0.125");
+            await Send(_snd, _sndLock, $"SET nr type={type} en={((type == 0 ? _nr : _an) ? 1 : 0)}");
+        }
+    }
+
+    /// <summary>Waterfall line rate: 1 slow (idle) to 4 fast.</summary>
+    public Task SetWaterfallSpeed(int speed)
+    {
+        _wfSpeed = Math.Clamp(speed, 1, 4);
+        return _wfReady ? Send(_wf, _wfLock, $"SET wf_speed={_wfSpeed}") : Task.CompletedTask;
+    }
 
     public int ZoomMax => _zoomMax;
 
@@ -160,6 +208,7 @@ public sealed class KiwiClient : IDisposable
         await Send(_snd, _sndLock, "SET gen=0 mix=-1");
         await Send(_snd, _sndLock, $"SET compression={(_compression ? 1 : 0)}");
         await SendAgc();
+        if (_nb || _nr || _an) await SendDsp();
         await SendTuning();
     }
 
@@ -168,7 +217,7 @@ public sealed class KiwiClient : IDisposable
         _wfReady = true;
         await SendView();
         await Send(_wf, _wfLock, "SET maxdb=-10 mindb=-110");
-        await Send(_wf, _wfLock, "SET wf_speed=3");
+        await Send(_wf, _wfLock, $"SET wf_speed={_wfSpeed}");
         await Send(_wf, _wfLock, "SET wf_comp=0");
         await Send(_wf, _wfLock, "SET interp=13");
     }

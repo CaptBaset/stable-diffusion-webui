@@ -6,16 +6,33 @@ using System.Windows.Media.Imaging;
 
 namespace HamRxBridge.Ui;
 
-/// <summary>Spectrum on top, frequency scale, scrolling waterfall below. Click or drag to tune.</summary>
+/// <summary>
+/// Spectrum on top, frequency scale, scrolling waterfall below. Click or drag to tune.
+///
+/// Built like a professional SDR display:
+///  - the waterfall is a ring buffer on the GPU: each new line uploads 4 KB, never the whole image;
+///    two image brushes show the ring in order, so nothing is ever copied or scrolled in memory
+///  - the spectrum is decimated to one max value per screen pixel (a peak detector, like an analyzer)
+///  - peak hold trace with slow decay
+///  - all pens, brushes, fonts and scale labels are created once and reused
+/// </summary>
 public sealed class PanadapterControl : FrameworkElement
 {
     const int Bins = 1024;
-    const int WfHeight = 700;
+    const int WfHeight = 600;
 
     readonly float[] _spec = new float[Bins];
-    readonly int[] _pixels = new int[Bins * WfHeight];
+    readonly float[] _peak = new float[Bins];
+    readonly float[] _sortBuf = new float[Bins];
+    readonly int[] _row = new int[Bins];
+    readonly int[] _blank = new int[Bins * WfHeight];
     readonly WriteableBitmap _bmp = new(Bins, WfHeight, 96, 96, PixelFormats.Bgra32, null);
+    readonly ImageBrush _topBrush, _bottomBrush;
     readonly int[] _palette = BuildPalette();
+    readonly Dictionary<string, FormattedText> _labels = new();
+    double _labelDip;
+    int _head;                 // ring row holding the newest line
+    int _rowsFilled;
     bool _haveSpec;
     bool _dragging;
 
@@ -27,11 +44,21 @@ public sealed class PanadapterControl : FrameworkElement
     public double MinDb { get; set; } = -120;
     public double MaxDb { get; set; } = -40;
     public double SnapHz { get; set; } = 100;
+    public bool PeakHold { get; set; } = true;
     public double LastRowMin { get; private set; }
     public double LastRowMax { get; private set; }
 
     /// <summary>10th percentile of the current spectrum: a fair noise floor figure.</summary>
-    public double NoiseFloor => _haveSpec ? _spec.OrderBy(x => x).ElementAt(Bins / 10) : double.NaN;
+    public double NoiseFloor
+    {
+        get
+        {
+            if (!_haveSpec) return double.NaN;
+            Array.Copy(_spec, _sortBuf, Bins);
+            Array.Sort(_sortBuf);
+            return _sortBuf[Bins / 10];
+        }
+    }
 
     public event Action<double>? TuneRequested;
     public event Action<int>? WheelStep;
@@ -43,6 +70,17 @@ public sealed class PanadapterControl : FrameworkElement
         ClipToBounds = true;
         Focusable = true;
         Cursor = Cursors.Cross;
+        _topBrush = MakeRingBrush();
+        _bottomBrush = MakeRingBrush();
+        _bmp.WritePixels(new Int32Rect(0, 0, Bins, WfHeight), _blank, Bins * 4, 0);
+    }
+
+    ImageBrush MakeRingBrush()
+    {
+        var b = new ImageBrush(_bmp) { ViewboxUnits = BrushMappingMode.Absolute, Stretch = Stretch.Fill };
+        RenderOptions.SetBitmapScalingMode(b, BitmapScalingMode.Linear);
+        RenderOptions.SetCachingHint(b, CachingHint.Cache);
+        return b;
     }
 
     public void PushRow(byte[] bins, double startHz, double spanHz)
@@ -51,33 +89,32 @@ public sealed class PanadapterControl : FrameworkElement
         bool viewChanged = Math.Abs(spanHz - SpanHz) > 1 || Math.Abs(newCenter - CenterHz) > spanHz / Bins;
         if (viewChanged)
         {
-            Array.Clear(_pixels);
+            _bmp.WritePixels(new Int32Rect(0, 0, Bins, WfHeight), _blank, Bins * 4, 0);
+            _rowsFilled = 0;
             _haveSpec = false;
         }
         CenterHz = newCenter;
         SpanHz = spanHz;
 
-        double lo = 0, hi = -999;
-        lo = 999;
+        float lo = 999, hi = -999;
         for (int i = 0; i < Bins; i++)
         {
             float db = bins[i] - 255f;
             if (db < lo) lo = db;
             if (db > hi) hi = db;
             _spec[i] = _haveSpec ? _spec[i] * 0.55f + db * 0.45f : db;
+            _peak[i] = _haveSpec ? Math.Max(_peak[i] - 0.15f, _spec[i]) : db;
         }
         _haveSpec = true;
         LastRowMin = lo; LastRowMax = hi;
 
-        Array.Copy(_pixels, 0, _pixels, Bins, Bins * (WfHeight - 1));
-        double range = Math.Max(10, MaxDb - MinDb);
+        // one new line into the ring, newest above the older ones
+        _head = (_head - 1 + WfHeight) % WfHeight;
+        double range = Math.Max(10, MaxDb - MinDb), scale = 255.0 / range;
         for (int i = 0; i < Bins; i++)
-        {
-            double n = (bins[i] - 255.0 - MinDb) / range;
-            int idx = (int)Math.Clamp(n * 255.0, 0, 255);
-            _pixels[i] = _palette[idx];
-        }
-        _bmp.WritePixels(new Int32Rect(0, 0, Bins, WfHeight), _pixels, Bins * 4, 0);
+            _row[i] = _palette[(int)Math.Clamp((bins[i] - 255.0 - MinDb) * scale, 0, 255)];
+        _bmp.WritePixels(new Int32Rect(0, _head, Bins, 1), _row, Bins * 4, 0);
+        if (_rowsFilled < WfHeight) _rowsFilled++;
         InvalidateVisual();
     }
 
@@ -85,9 +122,10 @@ public sealed class PanadapterControl : FrameworkElement
     public void AutoRange()
     {
         if (!_haveSpec) return;
-        var sorted = _spec.OrderBy(x => x).ToArray();
-        MinDb = Math.Round(sorted[(int)(Bins * 0.10)] - 6);
-        MaxDb = Math.Round(Math.Max(MinDb + 30, sorted[(int)(Bins * 0.995)] + 8));
+        Array.Copy(_spec, _sortBuf, Bins);
+        Array.Sort(_sortBuf);
+        MinDb = Math.Round(_sortBuf[(int)(Bins * 0.10)] - 6);
+        MaxDb = Math.Round(Math.Max(MinDb + 30, _sortBuf[(int)(Bins * 0.995)] + 8));
         InvalidateVisual();
     }
 
@@ -131,16 +169,51 @@ public sealed class PanadapterControl : FrameworkElement
     static readonly Brush Bg = Frozen(new SolidColorBrush(Color.FromRgb(6, 9, 14)));
     static readonly Pen GridPen = FrozenPen(Color.FromArgb(60, 120, 150, 190));
     static readonly Pen SpecPen = FrozenPen(Color.FromRgb(120, 220, 255), 1.2);
+    static readonly Pen PeakPen = FrozenPen(Color.FromArgb(150, 251, 191, 36), 1);
     static readonly Pen TunePen = FrozenPen(Color.FromRgb(255, 90, 95), 1.5);
     static readonly Brush BandBrush = Frozen(new SolidColorBrush(Color.FromArgb(55, 255, 90, 95)));
     static readonly Brush TextBrush = Frozen(new SolidColorBrush(Color.FromRgb(150, 170, 195)));
+    static readonly Brush SpecFill = Frozen(new LinearGradientBrush(Color.FromArgb(150, 47, 181, 255), Color.FromArgb(10, 168, 85, 247), 90));
+    static readonly Typeface Face = new("Segoe UI");
 
     static Brush Frozen(Brush b) { b.Freeze(); return b; }
     static Pen FrozenPen(Color c, double w = 1) { var p = new Pen(new SolidColorBrush(c), w); p.Freeze(); return p; }
 
-    FormattedText Text(string s, double size = 11) =>
-        new(s, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, new Typeface("Segoe UI"), size, TextBrush,
-            VisualTreeHelper.GetDpi(this).PixelsPerDip);
+    /// <summary>Scale labels are cached; only a handful of distinct strings ever appear.</summary>
+    FormattedText Text(string s, double size = 11)
+    {
+        double dip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+        if (dip != _labelDip || _labels.Count > 400) { _labels.Clear(); _labelDip = dip; }
+        string key = size + "|" + s;
+        if (!_labels.TryGetValue(key, out var ft))
+            _labels[key] = ft = new FormattedText(s, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, Face, size, TextBrush, dip);
+        return ft;
+    }
+
+    /// <summary>One max value per screen pixel: no weak signal disappears between pixels.</summary>
+    StreamGeometry Trace(float[] data, double w, double specH, double range, bool closed)
+    {
+        var geo = new StreamGeometry();
+        int cols = Math.Max(2, (int)w);
+        using (var g = geo.Open())
+        {
+            bool started = false;
+            if (closed) { g.BeginFigure(new Point(0, specH), true, true); started = true; }
+            for (int px = 0; px < cols; px++)
+            {
+                int a = px * Bins / cols, b = Math.Max(a + 1, (px + 1) * Bins / cols);
+                float m = float.MinValue;
+                for (int i = a; i < b && i < Bins; i++) if (data[i] > m) m = data[i];
+                double y = specH - (Math.Clamp(m, MinDb, MaxDb) - MinDb) / range * specH;
+                var pt = new Point((px + 0.5) * w / cols, y);
+                if (!started) { g.BeginFigure(pt, false, false); started = true; }
+                else g.LineTo(pt, true, false);
+            }
+            if (closed) g.LineTo(new Point(w, specH), true, false);
+        }
+        geo.Freeze();
+        return geo;
+    }
 
     protected override void OnRender(DrawingContext dc)
     {
@@ -149,7 +222,7 @@ public sealed class PanadapterControl : FrameworkElement
         dc.DrawRectangle(Bg, null, new Rect(0, 0, w, h));
 
         double specH = Math.Max(80, h * 0.34), scaleH = 20;
-        double wfTop = specH + scaleH;
+        double wfTop = specH + scaleH, wfH = Math.Max(1, h - wfTop);
 
         // horizontal dB grid
         double range = Math.Max(10, MaxDb - MinDb);
@@ -157,8 +230,7 @@ public sealed class PanadapterControl : FrameworkElement
         {
             double y = specH - (db - MinDb) / range * specH;
             dc.DrawLine(GridPen, new Point(0, y), new Point(w, y));
-            var t = Text($"{db:0}", 10);
-            dc.DrawText(t, new Point(3, y - 13));
+            dc.DrawText(Text($"{db:0}", 10), new Point(3, y - 13));
         }
 
         // vertical frequency grid + scale
@@ -172,29 +244,23 @@ public sealed class PanadapterControl : FrameworkElement
             dc.DrawText(label, new Point(x - label.Width / 2, specH + 3));
         }
 
-        // spectrum
+        // spectrum and peak hold
         if (_haveSpec)
         {
-            var geo = new StreamGeometry();
-            using (var g = geo.Open())
-            {
-                g.BeginFigure(new Point(0, specH), true, true);
-                for (int i = 0; i < Bins; i++)
-                {
-                    double x = (i + 0.5) / Bins * w;
-                    double y = specH - (Math.Clamp(_spec[i], MinDb, MaxDb) - MinDb) / range * specH;
-                    g.LineTo(new Point(x, y), true, false);
-                }
-                g.LineTo(new Point(w, specH), true, false);
-            }
-            geo.Freeze();
-            var fill = new LinearGradientBrush(Color.FromArgb(150, 47, 181, 255), Color.FromArgb(10, 47, 181, 255), 90);
-            fill.Freeze();
-            dc.DrawGeometry(fill, SpecPen, geo);
+            dc.DrawGeometry(SpecFill, SpecPen, Trace(_spec, w, specH, range, true));
+            if (PeakHold) dc.DrawGeometry(null, PeakPen, Trace(_peak, w, specH, range, false));
         }
 
-        // waterfall
-        dc.DrawImage(_bmp, new Rect(0, wfTop, w, Math.Max(1, h - wfTop)));
+        // waterfall ring: rows _head..end are the newest, then 0.._head-1
+        int newer = WfHeight - _head;
+        double topH = wfH * newer / WfHeight;
+        _topBrush.Viewbox = new Rect(0, _head, Bins, newer);
+        dc.DrawRectangle(_topBrush, null, new Rect(0, wfTop, w, topH));
+        if (_head > 0)
+        {
+            _bottomBrush.Viewbox = new Rect(0, 0, Bins, _head);
+            dc.DrawRectangle(_bottomBrush, null, new Rect(0, wfTop + topH, w, wfH - topH));
+        }
 
         // passband and tuned marker
         double xt = (TunedHz - ViewStart) / SpanHz * w;
