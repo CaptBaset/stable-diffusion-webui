@@ -30,7 +30,9 @@ public sealed class AppSettings
 
     // receiver side DSP (KiwiSDR): noise blanker, noise reduction, autonotch
     public bool NoiseBlanker { get; set; }
-    public bool NoiseReduction { get; set; }
+    public bool NoiseReduction { get; set; } = true;
+    /// <summary>Set once the noise reduction default has been applied to an older settings file.</summary>
+    public bool NrDefaultApplied { get; set; }
     public bool AutoNotch { get; set; }
 
     // receiver
@@ -58,7 +60,17 @@ public sealed class AppSettings
         NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals
     };
 
-    public static AppSettings Current { get; } = Load();
+    public static AppSettings Current { get; } = Upgrade(Load());
+
+    static AppSettings Upgrade(AppSettings s)
+    {
+        if (!s.NrDefaultApplied)
+        {
+            s.NoiseReduction = true;       // quieter by default; the NR button turns it off and that sticks
+            s.NrDefaultApplied = true;
+        }
+        return s;
+    }
 
     static AppSettings Load()
     {

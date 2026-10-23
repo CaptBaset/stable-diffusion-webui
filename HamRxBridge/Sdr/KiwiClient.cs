@@ -129,7 +129,22 @@ public sealed class KiwiClient : IDisposable
             await Send(_snd, _sndLock, "SET nb type=0 en=0");
         }
 
-        // noise reduction and autonotch: WDSP LMS, taps 64, delay 16, gain 8e-5, leakage 0.125
+        // Noise reduction only: the Kiwi's spectral denoiser, the most effective on voice hiss
+        // (gain 0 dB, alpha 0.95, active SNR 30 dB, the web UI defaults). It has no autonotch,
+        // so when the notch is wanted too, both run as WDSP LMS filters instead.
+        if (_nr && !_an)
+        {
+            await Send(_snd, _sndLock, "SET nr algo=3");
+            await Send(_snd, _sndLock, "SET nr type=0 param=0 pval=1");
+            await Send(_snd, _sndLock, "SET nr type=0 param=1 pval=0.95");
+            await Send(_snd, _sndLock, "SET nr type=0 param=2 pval=1000");
+            await Send(_snd, _sndLock, "SET nr type=0 param=3 pval=0");
+            await Send(_snd, _sndLock, "SET nr type=0 en=1");
+            await Send(_snd, _sndLock, "SET nr type=1 en=0");
+            return;
+        }
+
+        // WDSP LMS: taps 64, delay 16, gain 8e-5, leakage 0.125
         await Send(_snd, _sndLock, $"SET nr algo={(_nr || _an ? 1 : 0)}");
         for (int type = 0; type <= 1; type++)
         {

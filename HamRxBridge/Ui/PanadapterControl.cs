@@ -102,7 +102,7 @@ public sealed class PanadapterControl : FrameworkElement
             float db = bins[i] - 255f;
             if (db < lo) lo = db;
             if (db > hi) hi = db;
-            _spec[i] = _haveSpec ? _spec[i] * 0.55f + db * 0.45f : db;
+            _spec[i] = _haveSpec ? _spec[i] * 0.7f + db * 0.3f : db;     // video averaging: calmer trace
             _peak[i] = _haveSpec ? Math.Max(_peak[i] - 0.15f, _spec[i]) : db;
         }
         _haveSpec = true;

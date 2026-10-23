@@ -64,7 +64,7 @@ public sealed class ControlPanel : UserControl
         _nr = Tog("NR", (_, _) => DspToggled(), Res("WarnBrush"));
         _an = Tog("Notch", (_, _) => DspToggled(), Res("WarnBrush"));
         _nb.ToolTip = "Noise blanker: removes impulse noise (ignition, power line clicks). Runs on the receiver.";
-        _nr.ToolTip = "Noise reduction (LMS): lowers hiss on weak signals. Runs on the receiver.";
+        _nr.ToolTip = "Noise reduction: lowers background hiss. Spectral denoiser on its own, LMS when Notch is also on. Runs on the receiver, no PC load.";
         _an.ToolTip = "Autonotch: removes steady carriers and heterodyne whistles. Runs on the receiver.";
         _nb.IsChecked = AppSettings.Current.NoiseBlanker;
         _nr.IsChecked = AppSettings.Current.NoiseReduction;
