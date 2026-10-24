@@ -107,7 +107,11 @@ public sealed class KiwiNativeView : UserControl, IReceiverView
     {
         bool cwChanged = (mode == RigMode.CW) != (_mode == RigMode.CW);
         _hz = hz; _mode = mode; _lo = lowCut; _hi = highCut;
-        if (cwChanged && _kiwi != null) _ = _kiwi.SetAgc(_agc, mode == RigMode.CW);   // CW has its own AGC threshold
+        if (cwChanged && _kiwi != null)
+        {
+            _ = _kiwi.SetAgc(_agc, mode == RigMode.CW);                   // CW has its own AGC threshold
+            _ = _kiwi.SetDsp(_nb, _nr, _an, mode == RigMode.CW);          // and its own noise reduction
+        }
         double off = Passbands.CarrierOffset(mode);
         // red line on the dial (signal) frequency, passband drawn where it really listens
         _pan.TunedHz = hz; _pan.LowCutHz = lowCut + off; _pan.HighCutHz = highCut + off;
@@ -126,7 +130,7 @@ public sealed class KiwiNativeView : UserControl, IReceiverView
     public void SetDsp(bool noiseBlanker, bool noiseReduction, bool autoNotch)
     {
         _nb = noiseBlanker; _nr = noiseReduction; _an = autoNotch;
-        if (_kiwi != null) _ = _kiwi.SetDsp(_nb, _nr, _an);
+        if (_kiwi != null) _ = _kiwi.SetDsp(_nb, _nr, _an, _mode == RigMode.CW);
     }
 
     /// <summary>
@@ -189,7 +193,7 @@ public sealed class KiwiNativeView : UserControl, IReceiverView
             await k.ConnectAsync(_rx, AppSettings.Current.KiwiPassword, ident, AppSettings.Current.KiwiCompression, _cts.Token);
             if (_disposed) return;
             await k.SetAgc(_agc, _mode == RigMode.CW);
-            await k.SetDsp(_nb, _nr, _an);
+            await k.SetDsp(_nb, _nr, _an, _mode == RigMode.CW);
             await k.SetTuning(_mode, _hz + Passbands.CarrierOffset(_mode), _lo, _hi);
             await k.SetView(_zoom, _hz);
             Status("Connected, waiting for the receiver ...", StatusLevel.Info);

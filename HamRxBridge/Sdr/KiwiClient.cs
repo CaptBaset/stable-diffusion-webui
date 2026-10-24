@@ -32,7 +32,7 @@ public sealed class KiwiClient : IDisposable
     double _hz = 7_100_000;
     int _lo = 300, _hi = 2700;
     bool _agc = true, _agcCw;
-    bool _nb, _nr, _an;
+    bool _nb, _nr, _an, _dspCw;
     int _wfSpeed = 3;
     int _zoom = 7;
     double _viewCenterHz = 7_100_000;
@@ -107,9 +107,9 @@ public sealed class KiwiClient : IDisposable
     /// Server side DSP (runs on the receiver, costs this PC nothing): noise blanker, noise
     /// reduction and autonotch, with the KiwiSDR web UI's own default parameters.
     /// </summary>
-    public Task SetDsp(bool noiseBlanker, bool noiseReduction, bool autoNotch)
+    public Task SetDsp(bool noiseBlanker, bool noiseReduction, bool autoNotch, bool cw = false)
     {
-        _nb = noiseBlanker; _nr = noiseReduction; _an = autoNotch;
+        _nb = noiseBlanker; _nr = noiseReduction; _an = autoNotch; _dspCw = cw;
         return _sndReady ? SendDsp() : Task.CompletedTask;
     }
 
@@ -132,7 +132,9 @@ public sealed class KiwiClient : IDisposable
         // Noise reduction only: the Kiwi's spectral denoiser, the most effective on voice hiss
         // (gain 0 dB, alpha 0.95, active SNR 30 dB, the web UI defaults). It has no autonotch,
         // so when the notch is wanted too, both run as WDSP LMS filters instead.
-        if (_nr && !_an)
+        // The spectral denoiser is a speech estimator: it pushes down low SNR bins, which buries
+        // weak CW. In CW the LMS denoiser is used instead: it locks onto steady tones and lifts them.
+        if (_nr && !_an && !_dspCw)
         {
             await Send(_snd, _sndLock, "SET nr algo=3");
             await Send(_snd, _sndLock, "SET nr type=0 param=0 pval=1");

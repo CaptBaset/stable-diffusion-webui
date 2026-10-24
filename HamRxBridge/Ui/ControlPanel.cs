@@ -28,7 +28,7 @@ public sealed class ControlPanel : UserControl
     readonly Slider _bwSlider = new() { Minimum = 0, Maximum = 1000 };
     readonly TextBlock _bwText = Label("", 12, "DimBrush");
     readonly List<ToggleButton> _stepBtns = new();
-    readonly Slider _vol = new() { Minimum = 0, Maximum = 1 };
+    readonly Slider _vol = new() { Minimum = 0, Maximum = 1.5, ToolTip = "Volume. The last third of the slider adds extra gain for quiet receivers." };
     readonly ToggleButton _mute, _agc;
     readonly Ellipse _led = new() { Width = 11, Height = 11, Margin = new Thickness(2, 0, 6, 0) };
     readonly TextBlock _rigName = Label("", 12);
